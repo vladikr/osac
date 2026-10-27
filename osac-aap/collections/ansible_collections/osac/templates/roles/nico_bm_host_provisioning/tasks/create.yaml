@@ -1,0 +1,5 @@
+---
+- name: Provision a NICo-backed BareMetalInstance
+  ansible.builtin.include_role:
+    name: nico.steps.nico_bmaas
+    tasks_from: create

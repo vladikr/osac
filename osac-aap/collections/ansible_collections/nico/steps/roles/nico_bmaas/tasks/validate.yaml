@@ -1,0 +1,26 @@
+---
+- name: Validate BMI identity and configured NICo tenant mapping
+  ansible.builtin.assert:
+    that:
+      - bare_metal_instance.metadata.uid | default('') | length > 0
+      - nico_bmaas_osac_tenant_id | length > 0
+      - (bare_metal_instance.metadata.annotations | default({})).get('osac.openshift.io/tenant', '') == nico_bmaas_osac_tenant_id
+      - nico_bmaas_osac_subnet_id | length > 0
+      - bare_metal_instance.spec.networkAttachments | default([]) | length == 1
+      - (bare_metal_instance.spec.networkAttachments | default([{}]))[0].subnetRef | default('') == nico_bmaas_osac_subnet_id
+      - nico_bmaas_tenant_id | length > 0
+      - nico_bmaas_tenant_org | length > 0
+      - nico_bmaas_provider_org | length > 0
+      - nico_bmaas_api_url | length > 0
+      - nico_bmaas_token_url | length > 0
+    fail_msg: BMI identity, OSAC tenant/subnet mapping, or NICo endpoint is missing or mismatched
+
+- name: Validate NICo credentials are injected by the AAP environment
+  ansible.builtin.assert:
+    that:
+      - nico_bmaas_tenant_auth.client_id | length > 0
+      - nico_bmaas_tenant_auth.client_secret | length > 0
+      - nico_bmaas_provider_auth.client_id | length > 0
+      - nico_bmaas_provider_auth.client_secret | length > 0
+    fail_msg: NICo tenant or provider credential is missing
+  no_log: true

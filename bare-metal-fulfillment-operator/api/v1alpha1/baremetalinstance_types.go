@@ -279,6 +279,18 @@ type BareMetalInstanceStatus struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Enum=Allocating;Progressing;Ready;Failed;Deleting
 	Phase BareMetalInstancePhaseType `json:"phase,omitempty"`
+	// NicoCreateAttempted records that the one automatic NICo Instance create
+	// attempt was authorized before AAP was launched. A lost launch response or
+	// failed job must not cause another POST without Site-side verification.
+	// +kubebuilder:validation:Optional
+	NicoCreateAttempted bool `json:"nicoCreateAttempted,omitempty"`
+	// NicoInstanceID is the tenant-owned NICo Instance returned by create.
+	// +kubebuilder:validation:Optional
+	NicoInstanceID string `json:"nicoInstanceID,omitempty"`
+	// NicoMachineID is the physical NICo Machine selected for this Instance.
+	// It remains until delete confirms the Machine is unassigned Ready.
+	// +kubebuilder:validation:Optional
+	NicoMachineID string `json:"nicoMachineID,omitempty"`
 	// ProvisioningJobs tracks the history of provision and deprovision operations
 	// Ordered chronologically, with latest operations at the end
 	// Limited to the last N jobs (configurable via OSAC_MAX_JOB_HISTORY, default 10)

@@ -165,6 +165,7 @@ Details of specific fulfillment types are specified in the following sections.
 
 * [Cluster Fulfillment](cluster-fulfillment.md)
 * [Bare Metal Server Fulfillment](bm-server-fulfillment.md)
+* [NICo-backed BMaaS integration audit](nico-bmaas-integration.md)
 * [VM Fulfillment](vm-fulfillment.md)
 * [PublicIP Networking](publicip-networking.md)
 

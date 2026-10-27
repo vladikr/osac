@@ -1,0 +1,37 @@
+---
+- name: Validate NICo BMI backend configuration
+  ansible.builtin.include_tasks: validate.yaml
+
+- name: Require saved provider identifiers before destructive NICo cleanup
+  ansible.builtin.assert:
+    that:
+      - (bare_metal_instance.status | default({})).get('nicoInstanceID', '') | length > 0
+      - (bare_metal_instance.status | default({})).get('nicoMachineID', '') | length > 0
+    fail_msg: Saved NICo Instance and Machine IDs are required; retain the BMI finalizer
+
+- name: Delete NICo Instance and wait for original Machine to become unassigned Ready
+  nico.steps.bare_metal_instance:
+    state: absent
+    api_url: "{{ nico_bmaas_api_url }}"
+    token_url: "{{ nico_bmaas_token_url }}"
+    token_host: "{{ nico_bmaas_token_host }}"
+    allow_http: "{{ nico_bmaas_allow_http }}"
+    tenant_org: "{{ nico_bmaas_tenant_org }}"
+    provider_org: "{{ nico_bmaas_provider_org }}"
+    tenant_auth: "{{ nico_bmaas_tenant_auth }}"
+    provider_auth: "{{ nico_bmaas_provider_auth }}"
+    tenant_id: "{{ nico_bmaas_tenant_id }}"
+    bmi_uid: "{{ bare_metal_instance.metadata.uid }}"
+    instance_id: "{{ bare_metal_instance.status.nicoInstanceID }}"
+    machine_id: "{{ bare_metal_instance.status.nicoMachineID }}"
+    timeout: "{{ nico_bmaas_timeout }}"
+    poll_interval: "{{ nico_bmaas_poll_interval }}"
+  register: nico_bmaas_delete_result
+  no_log: true
+
+- name: Publish verified NICo cleanup result
+  ansible.builtin.set_stats:
+    data:
+      nicoInstanceID: "{{ nico_bmaas_delete_result.instance_id }}"
+      nicoMachineID: "{{ nico_bmaas_delete_result.machine_id }}"
+      nicoCleanupStatus: "{{ nico_bmaas_delete_result.status }}"

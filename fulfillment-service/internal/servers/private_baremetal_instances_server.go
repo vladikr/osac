@@ -378,8 +378,14 @@ func (s *PrivateBareMetalInstancesServer) prepareCreate(ctx context.Context, can
 				hubID:        group.GetStatus().GetHub(),
 			})
 		}
-		if err = validateBareMetalSubnetFabricManager(ctx, subnet, fmt.Sprintf("network_attachments[%d]", i), s.virtualNetworksDao, s.networkClassesDao, s.logger); err != nil {
-			return
+		// The NICo BMI backend programs the Machine's tenant network as part of
+		// Instance creation. Its AAP role verifies the tenant Subnet mapping;
+		// requiring an OSAC fabric manager here would couple that atomic NICo
+		// operation to the generic BMF network handoff path.
+		if refKey(candidate.GetSpec().GetTemplate()) != "osac.templates.nico_bm_host_provisioning" {
+			if err = validateBareMetalSubnetFabricManager(ctx, subnet, fmt.Sprintf("network_attachments[%d]", i), s.virtualNetworksDao, s.networkClassesDao, s.logger); err != nil {
+				return
+			}
 		}
 	}
 	if len(hubReferences) > 0 {

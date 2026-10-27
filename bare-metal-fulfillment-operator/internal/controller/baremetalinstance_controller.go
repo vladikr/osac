@@ -208,6 +208,9 @@ func (r *BareMetalInstanceReconciler) updateStatusWithRetry(ctx context.Context,
 func (r *BareMetalInstanceReconciler) handleUpdate(ctx context.Context, bareMetalInstance *v1alpha1.BareMetalInstance) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Updating BareMetalInstance")
+	if isNicoBMaaS(bareMetalInstance) {
+		return r.reconcileNicoBMaaS(ctx, bareMetalInstance)
+	}
 
 	if bareMetalInstance.Spec.TemplateID != "" && bareMetalInstance.Spec.TemplateID != shared.OsacNoopTemplate && r.ProvisioningProvider == nil {
 		log.Error(nil, "Provisioning provider not configured", "templateID", bareMetalInstance.Spec.TemplateID)
@@ -1030,6 +1033,9 @@ func (r *BareMetalInstanceReconciler) handleDeletion(ctx context.Context, bareMe
 			pollInterval = DefaultManagementRecheckIntervalDuration
 		}
 		return ctrl.Result{RequeueAfter: pollInterval}, nil
+	}
+	if isNicoBMaaS(bareMetalInstance) {
+		return r.deleteNicoBMaaS(ctx, bareMetalInstance)
 	}
 
 	var result ctrl.Result

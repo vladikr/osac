@@ -1,0 +1,35 @@
+---
+# Backend configuration belongs to the AAP credential/environment, not to
+# tenant-controlled BMI templateParameters. Production uses separate scoped
+# tenant and provider identities. The DevSpace realm may use one development
+# identity for both roles and HTTP only on an isolated simulator network.
+nico_bmaas_api_url: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_API_URL') }}"
+nico_bmaas_token_url: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TOKEN_URL') }}"
+nico_bmaas_token_host: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TOKEN_HOST') }}"
+nico_bmaas_allow_http: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_ALLOW_HTTP') | default('false', true) | bool }}"
+nico_bmaas_tenant_org: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_ORG') }}"
+nico_bmaas_provider_org: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_ORG') }}"
+nico_bmaas_tenant_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_ID') }}"
+nico_bmaas_osac_tenant_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_OSAC_TENANT_ID') }}"
+nico_bmaas_osac_subnet_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_OSAC_SUBNET_ID') }}"
+nico_bmaas_vpc_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_VPC_ID') }}"
+nico_bmaas_instance_type_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_INSTANCE_TYPE_ID') }}"
+nico_bmaas_subnet_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_SUBNET_ID') }}"
+nico_bmaas_vpc_prefix_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_VPC_PREFIX_ID') }}"
+nico_bmaas_operating_system_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_OPERATING_SYSTEM_ID') }}"
+nico_bmaas_ipxe_script: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_IPXE_SCRIPT') }}"
+nico_bmaas_tenant_auth:
+  grant_type: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_GRANT_TYPE') | default('client_credentials', true) }}"
+  client_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_CLIENT_ID') }}"
+  client_secret: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_CLIENT_SECRET') }}"
+  username: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_USERNAME') }}"
+  password: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_PASSWORD') }}"
+nico_bmaas_provider_auth:
+  grant_type: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_GRANT_TYPE') | default('client_credentials', true) }}"
+  client_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_CLIENT_ID') }}"
+  client_secret: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_CLIENT_SECRET') }}"
+  username: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_USERNAME') }}"
+  password: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_PASSWORD') }}"
+nico_bmaas_timeout: 1800
+nico_bmaas_poll_interval: 10
+nico_bmaas_create_allowed: false

@@ -1,6 +1,10 @@
 ---
 # Create instances for a requested instance type
 # This task file is included from create_instances.yaml
+# Instance count is reconciled for one cluster/resource class. BMI needs a
+# stable one-to-one ownership key, durable Instance and Machine IDs, and an
+# explicit OSAC tenant -> NICo Tenant credential mapping. Do not call this
+# task file directly for standalone BMaaS.
 
 # Resolve instance type by listing all types for the site and matching by name.
 # The instance type name in nodeRequests matches the NICo

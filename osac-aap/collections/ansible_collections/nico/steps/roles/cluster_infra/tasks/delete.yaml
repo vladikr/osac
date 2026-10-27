@@ -1,4 +1,9 @@
 ---
+# ClusterOrder/HyperShift delete entry point only. nico_org credentials act
+# for the configured NICo Tenant; they cannot verify an unassigned Machine
+# after Instance deletion. A standalone BMI delete must use a provider-scoped
+# Machine read and retain its finalizer until the host is unassigned and Ready.
+# See docs/architecture/nico-bmaas-integration.md.
 # =============================================================================
 # NICo authentication
 # =============================================================================

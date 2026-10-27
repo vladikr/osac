@@ -1,0 +1,7 @@
+---
+name: nico-bm-host-provisioning
+title: NICo Bare Metal Instance Provisioning
+description: >
+  Provisions one NICo Instance for an OSAC BareMetalInstance and verifies
+  cleanup of its original Machine on deletion.
+template_type: bare_metal_instance

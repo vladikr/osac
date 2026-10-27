@@ -3274,6 +3274,42 @@ var _ = Describe("Private bare metal instances server", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
+		It("allows the NICo template to own fabric programming for a resolved tenant subnet", func() {
+			subnetID, sgID := createSubnet(nil, new("cudn_localnet"))
+			templatesDao, err := dao.NewGenericDAO[*privatev1.BareMetalInstanceTemplate]().
+				SetLogger(logger).SetTenancyLogic(tenancy).Build()
+			Expect(err).ToNot(HaveOccurred())
+			_, err = templatesDao.Create().SetObject(privatev1.BareMetalInstanceTemplate_builder{
+				Id:           "osac.templates.nico_bm_host_provisioning",
+				Title:        "NICo BMaaS pilot",
+				InstanceType: bareMetalInstanceTypeReference("default-type"),
+				Metadata: privatev1.Metadata_builder{
+					Tenant: testTenant,
+					Name:   "nico-bm-host-provisioning-test",
+				}.Build(),
+			}.Build()).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = server.Create(ctx, privatev1.BareMetalInstancesCreateRequest_builder{
+				Object: privatev1.BareMetalInstance_builder{
+					Metadata: privatev1.Metadata_builder{Name: fmt.Sprintf("nico-%s", uuid.NewString()[:8])}.Build(),
+					Spec: privatev1.BareMetalInstanceSpec_builder{
+						DiskImage:    privatev1.DiskImageReference_builder{Id: "default-bmi-disk-image"}.Build(),
+						Template:     privatev1.BareMetalInstanceTemplateReference_builder{Id: "osac.templates.nico_bm_host_provisioning"}.Build(),
+						SshPublicKey: new(testSSHPublicKey),
+						NetworkAttachments: []*privatev1.BareMetalNetworkAttachment{
+							privatev1.BareMetalNetworkAttachment_builder{
+								Subnet: privatev1.SubnetLocalReference_builder{Id: subnetID}.Build(),
+								SecurityGroups: []*privatev1.SecurityGroupLocalReference{
+									privatev1.SecurityGroupLocalReference_builder{Id: sgID}.Build(),
+								},
+							}.Build(),
+						},
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		It("rejects Create when a security group is assigned to a different Hub than its subnet", func() {
 			subnetID, _ := createSubnet(new("netris"), nil)
 			subnet, err := subnetDao.Get().SetId(subnetID).Do(ctx)

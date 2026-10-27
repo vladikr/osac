@@ -1,6 +1,10 @@
 ---
 # Delete NICo VPC and prefix in reverse creation order
 # Only deletes resources that were created by this cluster (per ConfigMap flags)
+# This legacy cluster path suppresses per-resource deletion failures and then
+# removes the tracking ConfigMap. A successful task run therefore does not
+# prove NICo Instance deletion or Machine cleanup-to-Ready. Do not use it as
+# the BareMetalInstance finalizer contract; see docs/architecture/nico-bmaas-integration.md.
 
 - name: Set expected resource names
   ansible.builtin.set_fact:

@@ -1,0 +1,17 @@
+# Isolated Machine-a-Tron BMaaS pilot overlay. Apply after kind-instance-devfull.yaml.
+# NICo credentials and the OSAC-to-NICo tenant/subnet mapping live in a scoped
+# AAP credential, never in this Helm values file.
+bmf:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  secrets:
+    inventoryConfig: osac-inventory-config-nico-pilot
+    managementConfig: osac-management-config-nico-pilot
+  testBackend:
+    metal3:
+      enabled: false
+  env:
+    aapUrl: http://awx-service.osac.svc.cluster.local:80/api
+    aapTokenSecretName: awx-token
+    aapTokenSecretKey: token

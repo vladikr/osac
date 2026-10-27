@@ -1,4 +1,9 @@
 ---
+# ClusterOrder/HyperShift entry point only. This path requires Agent, InfraEnv,
+# and NodePool context; it cannot provision a standalone BareMetalInstance.
+# nico_org/nico_tenant_id are currently deployment-wide credentials, not a
+# per-OSAC-tenant mapping. Never infer tenant isolation from the cluster label.
+# See docs/architecture/nico-bmaas-integration.md before reusing NICo tasks.
 - name: Show node requests
   ansible.builtin.debug:
     var: cluster_infra_node_requests

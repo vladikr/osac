@@ -1,0 +1,39 @@
+---
+- name: Validate NICo BMI backend configuration
+  ansible.builtin.include_tasks: validate.yaml
+
+- name: Create or adopt one NICo Instance for this BMI
+  nico.steps.bare_metal_instance:
+    state: present
+    api_url: "{{ nico_bmaas_api_url }}"
+    token_url: "{{ nico_bmaas_token_url }}"
+    token_host: "{{ nico_bmaas_token_host }}"
+    allow_http: "{{ nico_bmaas_allow_http }}"
+    tenant_org: "{{ nico_bmaas_tenant_org }}"
+    provider_org: "{{ nico_bmaas_provider_org }}"
+    tenant_auth: "{{ nico_bmaas_tenant_auth }}"
+    provider_auth: "{{ nico_bmaas_provider_auth }}"
+    tenant_id: "{{ nico_bmaas_tenant_id }}"
+    bmi_uid: "{{ bare_metal_instance.metadata.uid }}"
+    instance_id: "{{ (bare_metal_instance.status | default({})).get('nicoInstanceID', '') }}"
+    machine_id: "{{ (bare_metal_instance.status | default({})).get('nicoMachineID', '') }}"
+    create_allowed: "{{ nico_bmaas_create_allowed }}"
+    name: "osac-{{ bare_metal_instance.metadata.uid }}"
+    vpc_id: "{{ nico_bmaas_vpc_id }}"
+    instance_type_id: "{{ nico_bmaas_instance_type_id }}"
+    subnet_id: "{{ nico_bmaas_subnet_id }}"
+    vpc_prefix_id: "{{ nico_bmaas_vpc_prefix_id }}"
+    operating_system_id: "{{ nico_bmaas_operating_system_id }}"
+    ipxe_script: "{{ nico_bmaas_ipxe_script }}"
+    timeout: "{{ nico_bmaas_timeout }}"
+    poll_interval: "{{ nico_bmaas_poll_interval }}"
+  register: nico_bmaas_result
+  no_log: true
+
+- name: Publish durable NICo Instance and Machine identifiers for the BMI controller
+  ansible.builtin.set_stats:
+    data:
+      nicoInstanceID: "{{ nico_bmaas_result.instance_id }}"
+      nicoMachineID: "{{ nico_bmaas_result.machine_id }}"
+      nicoIPAddress: "{{ nico_bmaas_result.ip_address }}"
+  no_log: false

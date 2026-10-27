@@ -443,6 +443,21 @@ spec:
                   - type
                   type: object
                 type: array
+              nicoCreateAttempted:
+                description: |-
+                  NicoCreateAttempted records that the one automatic NICo Instance create
+                  attempt was authorized before AAP was launched. A lost launch response or
+                  failed job must not cause another POST without Site-side verification.
+                type: boolean
+              nicoInstanceID:
+                description: NicoInstanceID is the tenant-owned NICo Instance returned
+                  by create.
+                type: string
+              nicoMachineID:
+                description: |-
+                  NicoMachineID is the physical NICo Machine selected for this Instance.
+                  It remains until delete confirms the Machine is unassigned Ready.
+                type: string
               phase:
                 description: Phase provides a single-value overview of the state of
                   the BareMetalInstance
