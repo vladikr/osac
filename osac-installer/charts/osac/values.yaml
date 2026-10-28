@@ -446,6 +446,7 @@ bmf:
         managementConfig: "osac-management-config-metal3-test"
   configMaps:
     profiles: "osac-profiles"
+    nicoTenantBindings: ""
   env:
     aapInsecureSkipVerify: "true"
   bcm:

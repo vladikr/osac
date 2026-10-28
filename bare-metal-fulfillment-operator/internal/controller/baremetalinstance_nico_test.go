@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -20,12 +22,14 @@ import (
 
 type nicoPilotProvider struct {
 	mockProvisioningProvider
-	launches int
-	outputs  map[string]any
+	launches              int
+	outputs               map[string]any
+	expectedCredentialIDs []int
 }
 
-func (p *nicoPilotProvider) TriggerProvisionWithExtraVars(_ context.Context, _ client.Object, vars map[string]any) (*provisioning.ProvisionResult, error) {
+func (p *nicoPilotProvider) TriggerProvisionWithExtraVars(ctx context.Context, _ client.Object, vars map[string]any) (*provisioning.ProvisionResult, error) {
 	Expect(vars["nico_bmaas_create_allowed"]).To(BeTrue())
+	Expect(provisioning.AAPCredentialIDsFromContext(ctx)).To(Equal(p.expectedCredentialIDs))
 	p.launches++
 	return &provisioning.ProvisionResult{JobID: "nico-create-1", InitialState: opv1alpha1.JobStatePending}, nil
 }
@@ -57,7 +61,7 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 	BeforeEach(func() {
 		provider = &nicoPilotProvider{outputs: map[string]any{
 			"nicoInstanceID": "nico-instance-1", "nicoMachineID": "nico-machine-1", "nicoIPAddress": "10.217.98.2",
-		}}
+		}, expectedCredentialIDs: []int{41}}
 		bmi = &v1alpha1.BareMetalInstance{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "nico-bmi-pilot-", Namespace: "default",
@@ -86,6 +90,9 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 			},
 			nil, provider, nil, nil, nil, 0, 0, 0, time.Millisecond, 0,
 		)
+		bindingsPath := filepath.Join(GinkgoT().TempDir(), "bindings.yaml")
+		Expect(os.WriteFile(bindingsPath, []byte("version: 1\nbindings:\n  - osacTenantID: pilot-tenant\n    osacSubnetID: osac-pilot-subnet\n    credentialIDs: [41]\n  - osacTenantID: other-tenant\n    osacSubnetID: other-subnet\n    credentialIDs: [42]\n"), 0600)).To(Succeed())
+		reconciler.NicoBindingsConfigPath = bindingsPath
 	})
 
 	AfterEach(func() {
@@ -106,6 +113,10 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 	}
 
 	It("persists one create intent, saves both IDs, and removes its finalizer only after verified cleanup", func() {
+		provider.triggerDeprovisionFunc = func(ctx context.Context, _ client.Object, _ []opv1alpha1.JobStatus) (*provisioning.DeprovisionResult, error) {
+			Expect(provisioning.AAPCredentialIDsFromContext(ctx)).To(Equal([]int{41}))
+			return &provisioning.DeprovisionResult{Action: provisioning.DeprovisionTriggered, JobID: "nico-delete-1", BlockDeletionOnFailure: true}, nil
+		}
 		fresh := reconcile() // management finalizer
 		Expect(controllerutil.ContainsFinalizer(fresh, BareMetalInstanceManagementFinalizer)).To(BeTrue())
 		Expect(fresh.Status.NicoCreateAttempted).To(BeFalse())
@@ -130,6 +141,58 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		_, err := reconciler.Reconcile(ctx, req) // successful deprovision artifacts
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, req.NamespacedName, &v1alpha1.BareMetalInstance{})).ToNot(Succeed())
+	})
+
+	It("selects the second tenant credential without changing the BMI contract", func() {
+		// Network attachments are immutable. Create a distinct BMI for the
+		// second tenant instead of changing the first tenant's allocation.
+		Expect(k8sClient.Delete(ctx, bmi)).To(Succeed())
+		bmi = &v1alpha1.BareMetalInstance{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "nico-bmi-other-", Namespace: "default",
+				Annotations: map[string]string{
+					"osac.openshift.io/tenant":          "other-tenant",
+					"osac.openshift.io/owner-reference": "BareMetalInstance/nico-bmi-other",
+				},
+			},
+			Spec: v1alpha1.BareMetalInstanceSpec{
+				TemplateID:         nicoBMaaSTemplateID,
+				Selector:           v1alpha1.HostSelectorSpec{HostSelector: map[string]string{"managedBy": "nico"}},
+				NetworkAttachments: []v1alpha1.BareMetalNetworkAttachment{{SubnetRef: "other-subnet", Interface: "eno1", Primary: true}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, bmi)).To(Succeed())
+		req = ctrl.Request{NamespacedName: client.ObjectKeyFromObject(bmi)}
+		provider.expectedCredentialIDs = []int{42}
+		reconcile()
+		fresh := reconcile()
+		Expect(fresh.Status.NicoCreateAttempted).To(BeTrue())
+		Expect(provider.launches).To(Equal(1))
+	})
+
+	It("refuses a tenant and Subnet combination with no binding before creating", func() {
+		bmi.Annotations["osac.openshift.io/tenant"] = "other-tenant"
+		Expect(k8sClient.Update(ctx, bmi)).To(Succeed())
+		reconcile() // finalizer is installed before any external create
+		_, err := reconciler.Reconcile(ctx, req)
+		Expect(err).To(MatchError(ContainSubstring("no NICo tenant binding")))
+		fresh := &v1alpha1.BareMetalInstance{}
+		Expect(k8sClient.Get(ctx, req.NamespacedName, fresh)).To(Succeed())
+		Expect(fresh.Status.NicoCreateAttempted).To(BeFalse())
+		Expect(provider.launches).To(BeZero())
+	})
+
+	It("keeps the cleanup finalizer if the tenant binding disappears before delete", func() {
+		reconcile()
+		reconcile()
+		fresh := reconcile()
+		Expect(fresh.Status.Phase).To(Equal(v1alpha1.BareMetalInstancePhaseReady))
+		reconciler.NicoBindingsConfigPath = filepath.Join(GinkgoT().TempDir(), "missing-bindings.yaml")
+		Expect(k8sClient.Delete(ctx, fresh)).To(Succeed())
+		_, err := reconciler.Reconcile(ctx, req)
+		Expect(err).To(MatchError(ContainSubstring("read NICo tenant bindings")))
+		Expect(k8sClient.Get(ctx, req.NamespacedName, fresh)).To(Succeed())
+		Expect(controllerutil.ContainsFinalizer(fresh, BareMetalInstanceManagementFinalizer)).To(BeTrue())
 	})
 
 	It("retains the finalizer when AAP succeeds without provider identifiers", func() {

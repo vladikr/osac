@@ -325,6 +325,36 @@ var _ = Describe("AAPProvider", func() {
 			Expect(inherited).To(Equal(map[string]any{"l2_vni": 14, "l3_vni": 11}))
 		})
 
+		It("passes selected credentials to an opted-in job template", func() {
+			aapClient.getTemplateFunc = func(_ context.Context, name string) (*aap.Template, error) {
+				return &aap.Template{ID: 1, Name: name, Type: aap.TemplateTypeJob, AskCredentialOnLaunch: true}, nil
+			}
+			aapClient.launchJobTemplateFunc = func(_ context.Context, req aap.LaunchJobTemplateRequest) (*aap.LaunchJobTemplateResponse, error) {
+				Expect(req.CredentialIDs).To(Equal([]int{41, 42}))
+				Expect(req.ExtraVars).NotTo(HaveKey("credentials"))
+				return &aap.LaunchJobTemplateResponse{JobID: 123}, nil
+			}
+			resource := &v1alpha1.ComputeInstance{ObjectMeta: metav1.ObjectMeta{Name: "vm", Namespace: "tenant"}}
+			_, err := provider.TriggerProvisionWithExtraVars(
+				provisioning.WithAAPCredentialIDs(ctx, []int{41, 42}), resource, nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("refuses to launch when the template ignores credential prompts", func() {
+			launched := false
+			aapClient.launchJobTemplateFunc = func(_ context.Context, _ aap.LaunchJobTemplateRequest) (*aap.LaunchJobTemplateResponse, error) {
+				launched = true
+				return &aap.LaunchJobTemplateResponse{JobID: 123}, nil
+			}
+			resource := &v1alpha1.ComputeInstance{ObjectMeta: metav1.ObjectMeta{Name: "vm", Namespace: "tenant"}}
+			_, err := provider.TriggerProvisionWithExtraVars(
+				provisioning.WithAAPCredentialIDs(ctx, []int{41}), resource, nil,
+			)
+			Expect(err).To(MatchError(ContainSubstring("does not allow credential selection")))
+			Expect(launched).To(BeFalse())
+		})
+
 		It("prefers inherited outputs when a key conflicts with generated vars", func() {
 			var launchedExtraVars map[string]any
 			aapClient.launchJobTemplateFunc = func(_ context.Context, req aap.LaunchJobTemplateRequest) (*aap.LaunchJobTemplateResponse, error) {

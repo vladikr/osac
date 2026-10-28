@@ -348,15 +348,20 @@ func (p *AAPProvider) launchTemplate(ctx context.Context, templateName string, r
 	}
 	extraVars = mergeExtraVars(extraVars, inheritedExtraVars)
 	sensitive := adminKubeconfigInExtraVars(extraVars)
+	credentialIDs := AAPCredentialIDsFromContext(ctx)
+	if len(credentialIDs) > 0 && (template.Type != aap.TemplateTypeJob || !template.AskCredentialOnLaunch) {
+		return "", fmt.Errorf("AAP template %q does not allow credential selection at launch", templateName)
+	}
 
 	var jobID int
 	switch template.Type {
 	case aap.TemplateTypeJob:
 		resp, err := p.client.LaunchJobTemplate(ctx, aap.LaunchJobTemplateRequest{
-			TemplateID:   template.ID,
-			TemplateName: templateName,
-			ExtraVars:    extraVars,
-			Sensitive:    sensitive,
+			TemplateID:    template.ID,
+			TemplateName:  templateName,
+			ExtraVars:     extraVars,
+			CredentialIDs: credentialIDs,
+			Sensitive:     sensitive,
 		})
 		if err != nil {
 			return "", fmt.Errorf("failed to launch job template: %w", err)

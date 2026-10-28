@@ -2,6 +2,8 @@
 # NICo credentials and the OSAC-to-NICo tenant/subnet mapping live in a scoped
 # AAP credential, never in this Helm values file.
 bmf:
+  configMaps:
+    nicoTenantBindings: osac-nico-tenant-bindings
   replicaCount: 1
   image:
     pullPolicy: IfNotPresent

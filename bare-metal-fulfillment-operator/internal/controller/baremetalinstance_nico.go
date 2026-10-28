@@ -42,12 +42,19 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaS(ctx context.Context, bm
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseProgressing
 		return ctrl.Result{}, nil
 	}
+	boundCtx, err := r.withNicoCredentials(ctx, bmi)
+	if err != nil {
+		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
+		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
+			v1alpha1.HostConditionReasonTemplateFailed, "NICo tenant binding is unavailable")
+		return ctrl.Result{}, err
+	}
 
 	outputs, ok := r.ProvisioningProvider.(provisioning.ProvisioningProviderWithProvisionOutputs)
 	if !ok {
 		return ctrl.Result{}, fmt.Errorf("NICo BMI requires AAP provision output artifacts")
 	}
-	return r.reconcileNicoBMaaSProvisioning(ctx, bmi, outputs)
+	return r.reconcileNicoBMaaSProvisioning(boundCtx, bmi, outputs)
 }
 
 func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
@@ -209,7 +216,11 @@ func (r *BareMetalInstanceReconciler) deleteNicoBMaaS(ctx context.Context, bmi *
 		bmi.Status.NicoInstanceID, bmi.Status.NicoMachineID = instanceID, machineID
 		return ctrl.Result{RequeueAfter: r.ProvisionPollIntervalDuration}, nil
 	}
-	result, done, err := r.reconcileDeprovisioning(ctx, bmi)
+	boundCtx, err := r.withNicoCredentials(ctx, bmi)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	result, done, err := r.reconcileDeprovisioning(boundCtx, bmi)
 	if err != nil || !done {
 		return result, err
 	}

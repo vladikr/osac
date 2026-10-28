@@ -124,6 +124,19 @@ var _ = Describe("Client", func() {
 				_, err := client.LaunchJobTemplate(ctx, request)
 				Expect(err).NotTo(HaveOccurred())
 			})
+
+			It("reports credentials ignored by AAP instead of accepting the job", func() {
+				server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					defer GinkgoRecover()
+					Expect(json.NewEncoder(w).Encode(map[string]any{
+						"id": 124, "ignored_fields": map[string]any{"credentials": []int{42}},
+					})).To(Succeed())
+				})
+				_, err := client.LaunchJobTemplate(ctx, aap.LaunchJobTemplateRequest{
+					TemplateName: "test-template", CredentialIDs: []int{42},
+				})
+				Expect(err).To(MatchError(ContainSubstring("ignored requested launch-time credentials")))
+			})
 		})
 
 		Context("when request fails", func() {
@@ -321,7 +334,7 @@ var _ = Describe("Client", func() {
 						_ = json.NewEncoder(w).Encode(map[string]any{
 							"count": 1,
 							"results": []map[string]any{
-								{"id": 19, "name": "my-job"},
+								{"id": 19, "name": "my-job", "ask_credential_on_launch": true},
 							},
 						})
 					} else {
@@ -338,6 +351,7 @@ var _ = Describe("Client", func() {
 				Expect(template.Type).To(Equal(aap.TemplateTypeJob))
 				Expect(template.Name).To(Equal("my-job"))
 				Expect(template.ID).To(Equal(19))
+				Expect(template.AskCredentialOnLaunch).To(BeTrue())
 			})
 		})
 

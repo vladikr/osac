@@ -2137,6 +2137,11 @@
               "type": "string",
               "description": "ConfigMap name for OSAC profiles",
               "default": "osac-profiles"
+            },
+            "nicoTenantBindings": {
+              "type": "string",
+              "description": "Administrator-owned ConfigMap with NICo BMaaS OSAC tenant/Subnet to AAP credential ID bindings; empty disables NICo binding mount",
+              "default": ""
             }
           },
           "additionalProperties": false

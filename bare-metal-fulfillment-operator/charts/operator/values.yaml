@@ -29,6 +29,8 @@ secrets:
 
 configMaps:
   profiles: "osac-profiles"
+  # Administrator-owned OSAC tenant/Subnet to AWX credential ID bindings.
+  nicoTenantBindings: ""
 
 env:
   aapUrl: ""

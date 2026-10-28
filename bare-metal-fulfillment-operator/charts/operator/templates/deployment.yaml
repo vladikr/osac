@@ -101,6 +101,10 @@ spec:
           {{- end }}
           - name: OSAC_ENABLE_NETWORKING_PROVISIONING
             value: {{ .Values.env.enableNetworkingProvisioning | default "false" | quote }}
+          {{- if .Values.configMaps.nicoTenantBindings }}
+          - name: OSAC_NICO_BINDINGS_CONFIG_PATH
+            value: /etc/osac/nico/bindings.yaml
+          {{- end }}
           {{- if .Values.netbox.enabled }}
           - name: OSAC_SECRET_API_URL
             value: {{ .Values.secretAPI.url | quote }}
@@ -124,6 +128,11 @@ spec:
             mountPath: /etc/openstack/
           - name: profiles
             mountPath: /etc/osac/profile/
+          {{- if .Values.configMaps.nicoTenantBindings }}
+          - name: nico-tenant-bindings
+            mountPath: /etc/osac/nico/
+            readOnly: true
+          {{- end }}
           {{- if .Values.bcm.enabled }}
           - name: bcm-certs
             mountPath: /etc/osac/certs/{{ .Values.secrets.bcmCerts }}/
@@ -162,6 +171,14 @@ spec:
           configMap:
             name: {{ .Values.configMaps.profiles }}
             optional: true
+        {{- if .Values.configMaps.nicoTenantBindings }}
+        - name: nico-tenant-bindings
+          configMap:
+            name: {{ .Values.configMaps.nicoTenantBindings }}
+            items:
+              - key: bindings.yaml
+                path: bindings.yaml
+        {{- end }}
         {{- if .Values.bcm.enabled }}
         - name: bcm-certs
           secret:

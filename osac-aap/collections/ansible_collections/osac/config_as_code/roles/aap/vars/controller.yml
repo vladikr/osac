@@ -406,6 +406,9 @@ controller_templates: # noqa: var-naming[no-role-prefix]
       - "{{ aap_prefix }}-bare-metal-fulfillment-ig"
     allow_simultaneous: true
     ask_variables_on_launch: true
+    # NICo BMaaS supplies an admin-selected credential at launch. Other
+    # backends keep their existing template credentials.
+    ask_credential_on_launch: true
     verbosity: 0
   - name: "{{ aap_prefix }}-delete-bare-metal-instance"
     project: "{{ aap_prefix }}"
@@ -418,6 +421,8 @@ controller_templates: # noqa: var-naming[no-role-prefix]
       - "{{ aap_prefix }}-bare-metal-fulfillment-ig"
     allow_simultaneous: true
     ask_variables_on_launch: true
+    # The same tenant binding must be selected for cleanup.
+    ask_credential_on_launch: true
     verbosity: 0
   # Storage operations use allow_simultaneous: false to prevent concurrent tenant
   # provisioning races on VAST resources. This serializes all tenant operations

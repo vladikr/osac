@@ -161,6 +161,55 @@ The following environment variables can be used to configure controller behavior
 - **`OSAC_AAP_INSECURE_SKIP_VERIFY`** — skip TLS verification for AAP (default: `false`).
 - **`OSAC_AAP_STATUS_POLL_INTERVAL`** — job status polling interval (default: `10s`). Duration string, e.g. `30s`, `1m`.
 
+#### NICo BMaaS tenant bindings (pilot)
+
+NICo BMaaS requires an administrator-owned ConfigMap in the operator's
+namespace. Set `bmf.configMaps.nicoTenantBindings` to its name; the chart mounts
+its `bindings.yaml` key at `/etc/osac/nico/bindings.yaml`. The optional
+`OSAC_NICO_BINDINGS_CONFIG_PATH` environment variable overrides that path.
+The file contains resource identities and AWX credential IDs, **not** NICo
+credential values:
+
+```yaml
+version: 1
+bindings:
+  - osacTenantID: <OSAC tenant ID>
+    osacSubnetID: <OSAC Subnet ID>
+    credentialIDs: [<AWX NICo credential ID>]
+  - osacTenantID: <second OSAC tenant ID>
+    osacSubnetID: <second OSAC Subnet ID>
+    credentialIDs: [<second AWX NICo credential ID>]
+```
+
+The operator selects a binding by exact tenant annotation and Subnet reference
+before a NICo create or delete launch. The selected AWX credential must inject
+the matching `NICO_BMAAS_OSAC_TENANT_ID` and `NICO_BMAAS_OSAC_SUBNET_ID` along
+with NICo tenant, network, and scoped authentication values; the role validates
+both OSAC IDs again before a NICo REST call. `credentialIDs` is the complete
+credential set for the job because AWX launch-time credentials override the
+job template's defaults. The create/delete bare-metal job templates must have
+`ask_credential_on_launch: true`; the operator refuses to launch with a
+selected credential otherwise. Other bare-metal backends continue using their
+job template defaults. Do not attach a default NICo credential to these shared
+job templates: if AWX stops accepting the launch-time selection, a NICo job
+must fail without NICo credentials instead of silently using another tenant's
+default.
+
+The pilot credential includes both tenant authentication for Instance operations
+and provider authentication for Machine cleanup verification. The lab's provider
+identity is shared across tenant credentials. A production design needs a scoped
+provider read identity and separately managed rotation; the ConfigMap is not a
+secret store or an authorization boundary for administrators who can edit AWX.
+
+Provision the ConfigMap and AWX credentials before enabling NICo BMaaS. If the
+binding is absent or malformed, the operator does not authorize a create and
+retains an existing BMI's cleanup finalizer. Keep a tenant/Subnet binding to
+the **same NICo tenant** while any BMI created under it exists. Credentials
+may be rotated for that identity; do not rebind active BMIs to a different
+NICo tenant. AWX numeric credential IDs are deployment-specific and must be
+updated after AWX is recreated. A durable binding identity and credential-name
+resolution are follow-up work before general production onboarding.
+
 #### BareMetalPool Controller
 
 - **`OSAC_HOST_DELETION_POLL_INTERVAL`** — Interval for polling host deletion status during BareMetalPool teardown. Default: `5s`

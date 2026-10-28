@@ -139,6 +139,16 @@ network attachment status. OSAC's selected SecurityGroup is not translated
 to a NICo Network Security Group in this pilot, so do not use this setup to
 claim tenant traffic isolation or security policy enforcement.
 
+The tenant-binding increment selects the AWX NICo credential from an
+administrator-owned `bmf.configMaps.nicoTenantBindings` ConfigMap. Its
+`bindings.yaml` maps each OSAC tenant ID and Subnet ID to a complete list of
+AWX credential IDs. The bare-metal operator selects that list at AAP launch;
+the AAP role still validates the OSAC tenant annotation and Subnet against the
+credential-injected values. Missing or mismatched bindings fail before a NICo
+create, and a missing binding during delete retains the cleanup finalizer.
+The binding contains no credential values. Numeric AWX IDs and rebinding of
+active BMIs remain pilot limitations; see the operator README for the contract.
+
 The pilot published shared template `osac.templates.nico_bm_host_provisioning`,
 catalog item `nico-mat-pilot`, and BMI instance type
 `nico-mat-control-plane`. The `tenant1` OSAC Subnet

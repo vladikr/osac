@@ -84,7 +84,8 @@ type LaunchJobTemplateRequest struct {
 
 // LaunchJobTemplateResponse contains the response from launching a job template.
 type LaunchJobTemplateResponse struct {
-	JobID int `json:"id"`
+	JobID         int                        `json:"id"`
+	IgnoredFields map[string]json.RawMessage `json:"ignored_fields,omitempty"`
 }
 
 // LaunchWorkflowTemplateRequest contains parameters for launching a workflow template.
@@ -126,9 +127,10 @@ const (
 
 // Template represents an AAP job template or workflow job template.
 type Template struct {
-	ID   int          `json:"id"`
-	Name string       `json:"name"`
-	Type TemplateType `json:"-"` // Type is determined by which endpoint returned the template
+	ID                    int          `json:"id"`
+	Name                  string       `json:"name"`
+	AskCredentialOnLaunch bool         `json:"ask_credential_on_launch"`
+	Type                  TemplateType `json:"-"` // Type is determined by which endpoint returned the template
 }
 
 // LaunchJobTemplate launches a job template and returns the job ID.
@@ -162,6 +164,11 @@ func (c *Client) LaunchJobTemplate(ctx context.Context, req LaunchJobTemplateReq
 	var launchResp LaunchJobTemplateResponse
 	if err := json.Unmarshal(resp, &launchResp); err != nil {
 		return nil, fmt.Errorf("failed to parse launch response: %w", err)
+	}
+	if len(req.CredentialIDs) > 0 {
+		if _, ignored := launchResp.IgnoredFields["credentials"]; ignored {
+			return nil, fmt.Errorf("AAP ignored requested launch-time credentials")
+		}
 	}
 
 	return &launchResp, nil

@@ -57,6 +57,7 @@ type BareMetalInstanceReconciler struct {
 	NetworkingProvider                provisioning.ProvisioningProvider
 	IPDiscoveryProvider               provisioning.ProvisioningProvider
 	AAPClient                         *aap.Client
+	NicoBindingsConfigPath            string
 	NoFreeHostsPollIntervalDuration   time.Duration
 	TryLockFailPollIntervalDuration   time.Duration
 	ManagementRecheckIntervalDuration time.Duration

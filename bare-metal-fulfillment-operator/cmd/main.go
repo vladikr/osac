@@ -73,10 +73,11 @@ const (
 	envBareMetalInstanceMaxConcurrentReconcile = "OSAC_BAREMETALINSTANCE_MAX_CONCURRENT_RECONCILES"
 
 	// Controller level configuration
-	envInventoryConfigPath  = "OSAC_INVENTORY_CONFIG_PATH"
-	envManagementConfigPath = "OSAC_MANAGEMENT_CONFIG_PATH"
-	envProfileConfigPath    = "OSAC_PROFILE_CONFIG_PATH"
-	envMaxJobHistory        = "OSAC_MAX_JOB_HISTORY"
+	envInventoryConfigPath    = "OSAC_INVENTORY_CONFIG_PATH"
+	envManagementConfigPath   = "OSAC_MANAGEMENT_CONFIG_PATH"
+	envProfileConfigPath      = "OSAC_PROFILE_CONFIG_PATH"
+	envNicoBindingsConfigPath = "OSAC_NICO_BINDINGS_CONFIG_PATH"
+	envMaxJobHistory          = "OSAC_MAX_JOB_HISTORY"
 
 	envHostReadyPollInterval     = "OSAC_HOST_READY_POLL_INTERVAL"
 	envHostDeletionPollInterval  = "OSAC_HOST_DELETION_POLL_INTERVAL"
@@ -514,7 +515,7 @@ func setupBareMetalInstanceController(
 		func(v int) bool { return v > 0 },
 	)
 
-	if err := controller.NewBareMetalInstanceReconciler(
+	instanceReconciler := controller.NewBareMetalInstanceReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		inventoryClient,
@@ -528,7 +529,11 @@ func setupBareMetalInstanceController(
 		managementRecheckInterval,
 		provisionPollInterval,
 		hostReadinessPollInterval,
-	).SetupWithManager(mgr, maxConcurrentReconciles); err != nil {
+	)
+	instanceReconciler.NicoBindingsConfigPath = helpers.GetEnvWithDefault(
+		envNicoBindingsConfigPath, "/etc/osac/nico/bindings.yaml",
+	)
+	if err := instanceReconciler.SetupWithManager(mgr, maxConcurrentReconciles); err != nil {
 		return fmt.Errorf("baremetalinstance controller: %w", err)
 	}
 	return nil

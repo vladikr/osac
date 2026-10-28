@@ -38,7 +38,21 @@ const (
 	addOnOperatorNameKey
 	externalIPPoolKey
 	externalIPAttachmentContextKey
+	aapCredentialIDsKey
 )
+
+// WithAAPCredentialIDs selects administrator-approved AAP credentials for one
+// job launch. Credential values never enter extra_vars or the resource payload.
+func WithAAPCredentialIDs(ctx context.Context, ids []int) context.Context {
+	return context.WithValue(ctx, aapCredentialIDsKey, append([]int(nil), ids...))
+}
+
+// AAPCredentialIDsFromContext returns a copy so callers cannot mutate the
+// credential selection used by a subsequent launch.
+func AAPCredentialIDsFromContext(ctx context.Context) []int {
+	ids, _ := ctx.Value(aapCredentialIDsKey).([]int)
+	return append([]int(nil), ids...)
+}
 
 // TierDefinition is the flat, AAP-schema-shaped representation of a storage tier
 // (mirrors osac-aap's storage_provider role argument_specs.yaml: name/protocol/
