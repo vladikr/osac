@@ -265,3 +265,6 @@ for the original Machine, and zero Machine health reports. The BMI CR was
 removed and the public `tenant2` BMI list was empty. This verifies a second
 create/delete control-plane slice with tenant-specific NICo credentials; it
 does not add evidence of guest OS installation or NICo data-plane isolation.
+
+The later fresh-tenant CLI recording and its OSAC-to-NICo binding walkthrough
+are in [NICo-backed BMaaS tenant flow and CLI recording](nico-bmaas-tenant-flow.md).
