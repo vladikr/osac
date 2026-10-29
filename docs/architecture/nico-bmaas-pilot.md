@@ -204,3 +204,64 @@ The full NICo DevSpace profile includes Machine-a-Tron but does not supply OS
 boot artifacts. The next OS install test needs a real iPXE script and boot
 artifacts compatible with the simulated `aarch64` host; a `Ready` result from
 the control plane alone is insufficient.
+
+## Two-tenant credential binding extension
+
+The next lab run added a second, distinct NICo IdP org, `test-org-2`, with its
+own Tenant Admin identity and NICo Tenant
+`12822e76-fe65-4a33-b5fe-82a12cdb1452`. A token for that identity received
+HTTP 403 when used with the original `test-org` REST path. The DevSpace
+Keycloak realm already mapped the custom `oidc_id` user attribute to a token
+claim, but its user profile did not allow newly created users to store that
+attribute. Registering `oidc_id` as an admin-managed profile attribute made
+the new tenant's NICo identity usable.
+
+The provider accepted a Tenant Account for the new org, created a separate
+`10.217.99.0/24` IP Block and allocation, and reserved one GB200 Instance Type
+slot for the tenant. The second Ready Machine had to be associated with the
+Instance Type before NICo accepted that allocation. The tenant then created an
+`ETHERNET_VIRTUALIZER` VPC and a `/28` Subnet. The corresponding OSAC `tenant2`
+was onboarded through the dev-full tenant script; its separate VirtualNetwork,
+Subnet `01a184e7-0758-77f0-aa99-11683ad6fb74`, and SecurityGroup were
+created through the tenant CLI. The OSAC Subnet and NICo Subnet both cover
+`10.217.99.0/28`.
+
+AWX credential ID 4 remains bound to `tenant1`, and a separate NICo credential
+ID 5 binds `tenant2` to NICo Tenant `12822e76-fe65-4a33-b5fe-82a12cdb1452`,
+VPC `79e5c2e5-f9f4-465c-96dd-fc431db3fef8`, and Subnet
+`e9d5a9df-433f-4859-ba14-ac3f2ca54113`. The shared BMI create/delete
+templates now prompt for credentials and have no default NICo credential.
+AWX requires their existing `kind-cluster` credential ID 3 to stay in the
+launch list, so the administrator-owned binding ConfigMap selects `[3, 4]`
+for `tenant1` and `[3, 5]` for `tenant2`. The BMF Deployment was updated to
+image revision `54f9dc585` with a read-only binding ConfigMap mount. The
+umbrella Helm release was left in place: a dry run of the newer chart would
+also have added the unrelated metering stack. The chart wiring is committed
+for a coordinated release.
+
+The first `tenant2` BMI launch sent only credential 5 and AWX rejected it with
+HTTP 400 because credential 3 was absent. No AWX create job or NICo Instance
+was made. After independently checking that the tenant had zero Instances and
+the Machine was unassigned `Ready`, the failed BMI was publicly deleted and
+its durable one-attempt marker was cleared on the already-deleting CR. The
+fresh public create launched AWX job 24 with credentials `[3, 5]`. It reached
+OSAC `RUNNING` and NICo Instance `Ready`, reporting `10.217.99.2` on the
+OSAC network attachment. AWX artifacts and the BMI status agreed on NICo
+Instance `793eb247-f368-4390-bec3-6ce41a5de197` and original Machine
+`fm100htfl4jvs6sp96lgmqv13tsmm79ca5vc9k3d6vjqnh6gvdl1g9b7ie0`.
+The NICo Instance carries the new Tenant and VPC IDs above and the matching
+NICo Subnet ID. OSAC `tenant1` listed no `tenant2` BMI. NICo chose the
+previously used Ready Machine despite the new one-Machine allocation: that
+allocation limits capacity by Instance Type but does not pin a physical host.
+
+Deleting the fresh BMI through the public `tenant2` CLI launched AWX job 25
+with credentials `[3, 5]` and `blockDeletionOnFailure: true`. NICo reported
+the Instance as `Terminating` while the original Machine was still assigned;
+the BMI remained `Deleting` with its finalizers. After about 599 seconds, job
+25 succeeded with `nicoCleanupStatus: Released` and the saved Instance and
+Machine IDs. Independent REST reads then returned HTTP 404 for Instance
+`793eb247-f368-4390-bec3-6ce41a5de197`, `Ready` with `instanceId: null`
+for the original Machine, and zero Machine health reports. The BMI CR was
+removed and the public `tenant2` BMI list was empty. This verifies a second
+create/delete control-plane slice with tenant-specific NICo credentials; it
+does not add evidence of guest OS installation or NICo data-plane isolation.

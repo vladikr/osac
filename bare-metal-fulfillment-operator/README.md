@@ -175,11 +175,16 @@ version: 1
 bindings:
   - osacTenantID: <OSAC tenant ID>
     osacSubnetID: <OSAC Subnet ID>
-    credentialIDs: [<AWX NICo credential ID>]
+    credentialIDs: [<AWX required Kubernetes credential ID>, <AWX NICo credential ID>]
   - osacTenantID: <second OSAC tenant ID>
     osacSubnetID: <second OSAC Subnet ID>
-    credentialIDs: [<second AWX NICo credential ID>]
+    credentialIDs: [<AWX required Kubernetes credential ID>, <second AWX NICo credential ID>]
 ```
+
+`osacTenantID` is the exact BMI `osac.openshift.io/tenant` annotation value
+(currently the OSAC tenant name). `osacSubnetID` is the public OSAC Subnet ID
+in `spec.networkAttachments[0].subnetRef`. The AWX credential independently
+contains the corresponding NICo Tenant, VPC, and Subnet IDs.
 
 The operator selects a binding by exact tenant annotation and Subnet reference
 before a NICo create or delete launch. The selected AWX credential must inject
@@ -194,6 +199,11 @@ job template defaults. Do not attach a default NICo credential to these shared
 job templates: if AWX stops accepting the launch-time selection, a NICo job
 must fail without NICo credentials instead of silently using another tenant's
 default.
+
+In the dev-full lab, AWX rejects a launch list that omits the template's
+existing `kind-cluster` Kubernetes credential. Include that credential ID in
+every binding alongside exactly one tenant-specific NICo credential ID. The
+role does not use the Kubernetes credential for NICo REST calls.
 
 The pilot credential includes both tenant authentication for Instance operations
 and provider authentication for Machine cleanup verification. The lab's provider
