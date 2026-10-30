@@ -35,6 +35,10 @@ awx:
   enabled: true
   operatorChart: awx-operator/awx-operator
   operatorVersion: ""  # Empty = latest
+  project:
+    scmUrl: https://github.com/osac-project/osac.git
+    scmBranch: main
+    controllerVarsUrl: https://raw.githubusercontent.com/osac-project/osac/main/osac-aap/collections/ansible_collections/osac/config_as_code/roles/aap/vars/controller.yml
   executionEnvironment:
     # Same image used by the OSAC AAP chart; includes every collection from
     # osac-aap/collections/requirements.yml, including vastdata.vms.

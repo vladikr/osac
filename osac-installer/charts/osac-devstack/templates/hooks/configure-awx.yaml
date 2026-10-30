@@ -51,6 +51,12 @@ spec:
           value: {{ .Values.awx.executionEnvironment.image | quote }}
         - name: OSAC_EE_PULL
           value: {{ .Values.awx.executionEnvironment.pull | quote }}
+        - name: OSAC_AWX_PROJECT_URL
+          value: {{ .Values.awx.project.scmUrl | quote }}
+        - name: OSAC_AWX_PROJECT_BRANCH
+          value: {{ .Values.awx.project.scmBranch | quote }}
+        - name: OSAC_CONTROLLER_VARS_URL
+          value: {{ .Values.awx.project.controllerVarsUrl | quote }}
         volumeMounts:
         - name: scripts
           mountPath: /scripts
