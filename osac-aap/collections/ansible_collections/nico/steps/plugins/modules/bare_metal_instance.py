@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 import time
+from hashlib import sha256
 from ipaddress import IPv4Address, ip_address, ip_network
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+from uuid import UUID
 
 import yaml
 from ansible.module_utils.basic import AnsibleModule
@@ -84,6 +86,24 @@ options:
   subnet_id:
     type: str
   vpc_prefix_id:
+    type: str
+  fnn_auto_create:
+    type: bool
+    default: false
+    description: Create or reuse an OSAC-owned FNN VPC and exact Prefix before Instance creation.
+  osac_tenant_id:
+    type: str
+  osac_virtual_network_id:
+    type: str
+  osac_subnet_id:
+    type: str
+  osac_subnet_cidr:
+    type: str
+  site_id:
+    type: str
+  ip_block_id:
+    type: str
+  routing_profile:
     type: str
   network_virtualization_type:
     choices: [ETHERNET_VIRTUALIZER, FNN, FLAT]
@@ -230,6 +250,121 @@ def get_or_none(client, scope, path):
         if exc.status == 404:
             return None
         raise
+
+
+def _stable_vpc_id(tenant_id, virtual_network_id, site_id):
+    # NICo accepts a caller-supplied UUIDv4 for VPC create. Derive one from
+    # immutable OSAC identity so an ambiguous POST can be inspected by GET.
+    digest = sha256((tenant_id + "\x00" + virtual_network_id + "\x00" + site_id).encode()).digest()
+    return str(UUID(bytes=digest[:16], version=4))
+
+
+def _named_prefixes(client, vpc_id, name):
+    page = 1
+    matches = []
+    while True:
+        query = urlencode({"vpcId": vpc_id, "query": name, "pageNumber": page, "pageSize": 100})
+        _, rows = client.request("tenant", "GET", "vpc-prefix?" + query)
+        if not isinstance(rows, list):
+            raise NicoError("NICo VPC Prefix list has an invalid response")
+        matches.extend(row for row in rows if row.get("name") == name)
+        if len(rows) < 100:
+            return matches
+        page += 1
+
+
+def _wait_ready(client, kind, resource_id, timeout, interval):
+    deadline = time.monotonic() + timeout
+    while True:
+        obj = get_or_none(client, "tenant", kind + "/" + quote(resource_id, safe=""))
+        if obj is None:
+            raise NicoError(f"NICo {kind} {resource_id} disappeared before Ready")
+        if obj.get("status") == "Ready":
+            return obj
+        if obj.get("status") in ("Error", "Deleting"):
+            raise NicoError(f"NICo {kind} {resource_id} reached {obj['status']}")
+        if time.monotonic() >= deadline:
+            raise NicoError(f"NICo {kind} {resource_id} did not reach Ready before timeout")
+        time.sleep(interval)
+
+
+def ensure_fnn_network(client):
+    """Realize an OSAC Subnet in NICo FNN using stable identity and exact CIDR.
+
+    This is an opt-in pilot path. It never deletes shared network resources when
+    a BMI is deleted. A failed or ambiguous create is inspected, never repeated.
+    """
+    p = client.params
+    required = ("osac_tenant_id", "osac_virtual_network_id", "osac_subnet_id",
+                "osac_subnet_cidr", "site_id", "ip_block_id", "routing_profile")
+    if any(not p.get(key) for key in required):
+        raise NicoError("FNN network creation requires OSAC tenant, VirtualNetwork, Subnet, CIDR, NICo Site, IP Block and routing profile")
+    if p.get("vpc_id") or p.get("vpc_prefix_id") or p.get("subnet_id"):
+        raise NicoError("automatic FNN creation cannot use preconfigured NICo VPC, Prefix or Subnet IDs")
+    try:
+        subnet = ip_network(p["osac_subnet_cidr"], strict=True)
+    except ValueError as exc:
+        raise NicoError("OSAC Subnet has an invalid canonical IPv4 CIDR") from exc
+    if subnet.version != 4 or not 8 <= subnet.prefixlen <= 31:
+        raise NicoError("NICo FNN requires an IPv4 Subnet CIDR with prefix length 8 through 31")
+    block = get_or_none(client, "tenant", "ipblock/" + quote(p["ip_block_id"], safe=""))
+    if block is None or block.get("status") != "Ready" or block.get("siteId") != p["site_id"] or block.get("tenantId") != p["tenant_id"]:
+        raise NicoError("configured NICo IP Block is not a Ready tenant block at the selected Site")
+    try:
+        block_cidr = ip_network(f"{block['prefix']}/{block['prefixLength']}", strict=True)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise NicoError("configured NICo IP Block has no valid canonical CIDR") from exc
+    if not subnet.subnet_of(block_cidr):
+        raise NicoError("OSAC Subnet CIDR is outside the configured NICo tenant IP Block")
+
+    vpc_id = _stable_vpc_id(p["osac_tenant_id"], p["osac_virtual_network_id"], p["site_id"])
+    vpc_name = "osac-" + p["osac_virtual_network_id"]
+    labels = {"osacTenant": p["osac_tenant_id"], "osacVirtualNetworkId": p["osac_virtual_network_id"]}
+    vpc = get_or_none(client, "tenant", "vpc/" + vpc_id)
+    if vpc is None:
+        body = {"id": vpc_id, "name": vpc_name, "siteId": p["site_id"],
+                "networkVirtualizationType": "FNN", "labels": labels,
+                "routingProfile": p["routing_profile"]}
+        try:
+            client.request("tenant", "POST", "vpc", body)
+        except NicoError as exc:
+            vpc = get_or_none(client, "tenant", "vpc/" + vpc_id)
+            if vpc is None:
+                raise NicoError(f"VPC create outcome is uncertain; inspect NICo VPC {vpc_id}: {exc}") from exc
+    vpc = _wait_ready(client, "vpc", vpc_id, p["timeout"], p["poll_interval"])
+    if (vpc.get("id") != vpc_id or vpc.get("name") != vpc_name or
+            any((vpc.get("labels") or {}).get(key) != value for key, value in labels.items()) or
+            vpc.get("tenantId") != p["tenant_id"] or
+            vpc.get("siteId") != p["site_id"] or vpc.get("networkVirtualizationType") != "FNN"):
+        raise NicoError("NICo VPC identity, owner, Site or FNN mode does not match the OSAC VirtualNetwork")
+    if vpc.get("routingProfile") and vpc["routingProfile"] != p["routing_profile"]:
+        raise NicoError("NICo VPC routing profile differs from the configured Site policy")
+
+    prefix_name = "osac-" + p["osac_subnet_id"]
+    matches = _named_prefixes(client, vpc_id, prefix_name)
+    if len(matches) > 1:
+        raise NicoError("multiple NICo VPC Prefixes match the OSAC Subnet")
+    if not matches:
+        body = {"name": prefix_name, "vpcId": vpc_id,
+                "ipBlockId": p["ip_block_id"], "prefix": str(subnet)}
+        try:
+            _, created = client.request("tenant", "POST", "vpc-prefix", body)
+            prefix_id = created.get("id") if isinstance(created, dict) else None
+        except NicoError as exc:
+            matches = _named_prefixes(client, vpc_id, prefix_name)
+            if len(matches) != 1:
+                raise NicoError(f"VPC Prefix create was not confirmed; inspect {prefix_name}: {exc}") from exc
+            prefix_id = matches[0].get("id")
+    else:
+        prefix_id = matches[0].get("id")
+    if not prefix_id:
+        raise NicoError("NICo VPC Prefix has no ID; inspect the Site before retrying")
+    prefix = _wait_ready(client, "vpc-prefix", prefix_id, p["timeout"], p["poll_interval"])
+    if (prefix.get("name") != prefix_name or prefix.get("vpcId") != vpc_id or
+            prefix.get("siteId") != p["site_id"] or prefix.get("ipBlockId") != p["ip_block_id"] or
+            prefix.get("prefix") != str(subnet)):
+        raise NicoError("NICo VPC Prefix parent, Site, IP Block or exact CIDR does not match the OSAC Subnet")
+    return vpc_id, prefix_id
 
 
 def machine_has_blocking_health_alert(machine):
@@ -429,17 +564,24 @@ def ensure_present(client, progress=None):
     params = client.params
     progress = {} if progress is None else progress
     progress.update(outcome=OUTCOME_NOT_CREATED, instance_id="", machine_id="")
-    for key in ("name", "vpc_id"):
+    for key in ("name",):
         if not params[key]:
             raise NicoError(f"{key} is required for Instance create")
     target_machine_id = params["target_machine_id"]
     if bool(params["instance_type_id"]) == bool(target_machine_id):
         raise NicoError("configure exactly one of instance_type_id or target_machine_id")
-    validate_network_configuration(params)
     if not params["operating_system_id"]:
         raise NicoError("operating_system_id is required")
-    # Validate tenant input before any NICo call.
+    # Validate tenant input before any NICo call, including network creation.
     user_data = compose_user_data(params["user_data"], params["ssh_public_key"])
+    if params.get("fnn_auto_create"):
+        if params["network_virtualization_type"] != "FNN":
+            raise NicoError("automatic NICo network creation is supported only for FNN")
+        check_operating_system(client, params["operating_system_id"], params["site_id"])
+        params["vpc_id"], params["vpc_prefix_id"] = ensure_fnn_network(client)
+    if not params["vpc_id"]:
+        raise NicoError("vpc_id is required for Instance create")
+    validate_network_configuration(params)
     vpc = get_or_none(client, "tenant", "vpc/" + quote(params["vpc_id"], safe=""))
     if vpc is None or vpc.get("tenantId") != params["tenant_id"]:
         raise NicoError("configured NICo VPC is absent or belongs to another tenant")
@@ -524,6 +666,7 @@ def ensure_present(client, progress=None):
     if not machine_id:
         raise NicoError("Ready NICo Instance has no Machine ID")
     return {"changed": changed, "instance_id": instance_id, "machine_id": machine_id,
+            "vpc_id": params["vpc_id"], "vpc_prefix_id": params["vpc_prefix_id"],
             "ip_address": address,
             "status": instance["status"]}
 
@@ -575,6 +718,13 @@ def main():
         vpc_id=dict(type="str", default=""), instance_type_id=dict(type="str", default=""),
         target_machine_id=dict(type="str", default=""),
         subnet_id=dict(type="str", default=""), vpc_prefix_id=dict(type="str", default=""),
+        fnn_auto_create=dict(type="bool", default=False),
+        osac_tenant_id=dict(type="str", default=""),
+        osac_virtual_network_id=dict(type="str", default=""),
+        osac_subnet_id=dict(type="str", default=""),
+        osac_subnet_cidr=dict(type="str", default=""),
+        site_id=dict(type="str", default=""), ip_block_id=dict(type="str", default=""),
+        routing_profile=dict(type="str", default=""),
         network_virtualization_type=dict(type="str", default="ETHERNET_VIRTUALIZER",
                                          choices=["ETHERNET_VIRTUALIZER", "FNN", "FLAT"]),
         flat_ipv4_cidr=dict(type="str", default=""),

@@ -18,6 +18,14 @@ nico_bmaas_instance_type_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_INSTA
 nico_bmaas_target_machine_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TARGET_MACHINE_ID') }}"
 nico_bmaas_subnet_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_SUBNET_ID') }}"
 nico_bmaas_vpc_prefix_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_VPC_PREFIX_ID') }}"
+# Opt-in FNN pilot: create or reuse VPC/Prefix from the OSAC network CRs.
+# These nonsecret settings are still supplied by the existing BMI credential;
+# the planned network-fulfillment instance-group contract is separate work.
+nico_bmaas_fnn_auto_create: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_FNN_AUTO_CREATE') | default('false', true) | bool }}"
+nico_bmaas_site_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_SITE_ID') }}"
+nico_bmaas_ip_block_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_IP_BLOCK_ID') }}"
+nico_bmaas_routing_profile: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_ROUTING_PROFILE') }}"
+nico_bmaas_allow_unenforced_security_groups: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PILOT_ALLOW_UNENFORCED_SECURITY_GROUPS') | default('false', true) | bool }}"
 # FLAT uses autoNetwork and no NICo Subnet/Prefix. Its expected CIDR must
 # match the bound OSAC Subnet and the site's HostInband address range.
 nico_bmaas_network_virtualization_type: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE') | default('ETHERNET_VIRTUALIZER', true) }}"
