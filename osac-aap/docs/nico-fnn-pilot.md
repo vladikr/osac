@@ -33,9 +33,10 @@ credentials continue to work when the new flag is off.
    Subnet and SecurityGroup for the selected CIDR. For example:
 
    ```bash
-   osac create virtualnetwork --name nico-fnn-test-vpc --ipv4-cidr <free-cidr>
+   free_cidr='10.180.66.0/24' # Example only: verify this CIDR is free in the derived block
+   osac create virtualnetwork --name nico-fnn-test-vpc --ipv4-cidr "$free_cidr"
    osac create subnet --name nico-fnn-test-subnet \
-     --virtual-network nico-fnn-test-vpc --ipv4-cidr <free-cidr>
+     --virtual-network nico-fnn-test-vpc --ipv4-cidr "$free_cidr"
    osac create securitygroup --name nico-fnn-test-sg \
      --virtual-network nico-fnn-test-vpc \
      --egress protocol=all,ipv4-cidr=0.0.0.0/0
@@ -94,12 +95,15 @@ Create a BMI with the existing NICo catalog item, approved DiskImage, and new
 Subnet/SG IDs. Use the same SSH key and instance type as the proven BMI pilot:
 
 ```bash
+pilot_key='/path/to/public-key.pub'
+subnet_id='<new-subnet-id>'
+sg_id='<new-sg-id>'
 osac create baremetalinstance \
   --catalog-item 01a1a958-dfec-78ed-a241-d2df4a4530ee \
   --name nico-fnn-test --instance-type nico-gb300-nvl72 \
-  --disk-image fedora --ssh-key "$(cat <public-key-file>)" \
+  --disk-image fedora --ssh-key "$(cat "$pilot_key")" \
   --network-attachment \
-  'subnet=<new-subnet-id>,interface=data-0,primary,security-groups=<new-sg-id>'
+  "subnet=$subnet_id,interface=data-0,primary,security-groups=$sg_id"
 osac get baremetalinstances nico-fnn-test
 ```
 
