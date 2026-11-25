@@ -17,6 +17,33 @@ connectivity, enforce SecurityGroups on NICo, or clean up shared VPCs and
 Prefixes when an OSAC network is deleted. Existing pre-created VPC/Prefix
 credentials continue to work when the new flag is off.
 
+## What the Launchpad test proves
+
+The default `k8s_only` NetworkClass realizes the OSAC VirtualNetwork and
+Subnet through Kubernetes networking. Their `Ready` state proves that path,
+not that NICo has a VPC yet. The first NICo-backed BMI then triggers the
+FNN VPC/Prefix creation. Verify the chain at each boundary:
+
+1. The OSAC VirtualNetwork and Subnet reach `Ready`, and the Subnet CR has the
+   requested CIDR and parent VirtualNetwork ID.
+2. The AWX BMI job reports the NICo VPC/Prefix IDs. NICo reports an FNN VPC
+   with the OSAC ownership labels and a Ready Prefix with the exact Subnet
+   CIDR, derived tenant IP Block, and parent VPC.
+3. The NICo Instance uses that Prefix; the installed OS phones home, OSAC
+   reports `RUNNING` and the NICo-assigned IP, and the host accepts SSH from a
+   site-approved access path. Delete the BMI and verify that its Instance is
+   absent and its Machine returns to unassigned `Ready`.
+
+This test does **not** prove a shared data plane between Kubernetes VMs,
+inventory bare metal, and NICo trays. It also does not exercise the Netris
+backend. To validate the complete Netris-plus-NICo network, use a Netris
+controller that manages the Launchpad site's actual fabric and a documented
+routing/ownership contract for the NICo FNN tenant CIDRs. Then test traffic
+between a Netris-connected workload and a NICo tray, external/service return
+paths, isolation, and policy enforcement. A separate simulated Netris fabric
+can test OSAC's Netris API workflow but cannot establish those site-level
+properties for the real GB300 trays.
+
 ## Launchpad setup
 
 1. Verify the NICo Site's FNN routing profile, parked-pool routing, and
