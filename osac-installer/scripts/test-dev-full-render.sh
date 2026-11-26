@@ -192,13 +192,19 @@ if ! grep -Fq 'image: ghcr.io/kube-rbac-proxy/kube-rbac-proxy:v0.22.1' <<<"$prox
   exit 1
 fi
 
+pilot_branch=osac-7351-nico-fnn-pilot
+pilot_revision=0123456789abcdef0123456789abcdef01234567
+pilot_vars_url="https://raw.githubusercontent.com/vladikr/osac/${pilot_revision}/osac-aap/collections/ansible_collections/osac/config_as_code/roles/aap/vars/controller.yml"
 pilot_awx_render=$(helm template test charts/osac-devstack --namespace osac \
-  "${profile_values[@]}" --values values/dev/kind-instance-nico-pilot.yaml \
+  "${profile_values[@]}" \
+  --set-string awx.project.scmUrl=https://github.com/vladikr/osac.git \
+  --set-string "awx.project.scmBranch=${pilot_branch}" \
+  --set-string "awx.project.controllerVarsUrl=${pilot_vars_url}" \
   --show-only templates/hooks/configure-awx.yaml)
 if ! grep -Fq 'value: "https://github.com/vladikr/osac.git"' <<<"$pilot_awx_render" \
-  || ! grep -Fq 'value: "no-issue/nico-bmaas-integration-audit"' <<<"$pilot_awx_render" \
+  || ! grep -Fq "value: \"${pilot_branch}\"" <<<"$pilot_awx_render" \
   || ! grep -Fq 'name: OSAC_CONTROLLER_VARS_URL' <<<"$pilot_awx_render" \
-  || ! grep -Fq 'raw.githubusercontent.com/vladikr/osac/301eba88a44ba006f28b317e1f8fddbbd11557fd/' <<<"$pilot_awx_render"; then
+  || ! grep -Fq "value: \"${pilot_vars_url}\"" <<<"$pilot_awx_render"; then
   echo "NICo pilot AWX hook must select the pilot project and template catalog" >&2
   exit 1
 fi
