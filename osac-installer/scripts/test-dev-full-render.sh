@@ -18,6 +18,14 @@ profile_values=(
 )
 chart_render=$(helm template test charts/osac-devstack --namespace osac \
   "${profile_values[@]}" --set ui.enabled=true)
+virt_hook_render=$(helm template test charts/osac-devstack --namespace osac \
+  "${profile_values[@]}" --show-only templates/hooks/install-virt.yaml)
+if ! grep -Fq 'if ! kubectl get crd kubevirts.kubevirt.io' <<<"$virt_hook_render" \
+  || ! grep -Fq 'kubectl apply --server-side --force-conflicts -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml"' <<<"$virt_hook_render" \
+  || ! grep -Fq 'kubectl apply --server-side -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-cr.yaml"' <<<"$virt_hook_render"; then
+  echo "dev-full KubeVirt hook must preserve installed CRDs and use server-side apply" >&2
+  exit 1
+fi
 osac_render=$(helm template osac charts/osac --namespace osac \
   --values values/dev/kind-instance.yaml \
   --values values/dev/kind-instance-devfull.yaml \

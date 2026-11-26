@@ -39,8 +39,11 @@ spec:
             set -euo pipefail
             echo "Installing KubeVirt..."
 
-            # Delete conflicting CRDs created by osac-infra fake CRDs
-            kubectl delete crd virtualmachines.kubevirt.io virtualmachineinstances.kubevirt.io 2>/dev/null || true
+            # Remove the infra stubs only before KubeVirt has installed its CRD.
+            # This hook also runs on upgrades, when deleting real VM CRDs is unsafe.
+            if ! kubectl get crd kubevirts.kubevirt.io >/dev/null 2>&1; then
+              kubectl delete crd virtualmachines.kubevirt.io virtualmachineinstances.kubevirt.io 2>/dev/null || true
+            fi
 
             # Determine version
             {{- if .Values.virt.kubevirtVersion }}
@@ -53,7 +56,8 @@ spec:
 
             # Install operator
             # KubeVirt's CRD exceeds the client-side apply annotation limit.
-            kubectl apply --server-side -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml"
+            # Reclaim fields from a partial client-side installation on retry.
+            kubectl apply --server-side --force-conflicts -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml"
             kubectl wait --for=condition=available --timeout=120s -n kubevirt deployments -l kubevirt.io || true
 
             # Create KubeVirt CR

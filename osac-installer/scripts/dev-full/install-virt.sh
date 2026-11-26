@@ -40,16 +40,19 @@ install_multus() {
 install_kubevirt() {
   log "Installing KubeVirt..."
 
-  # Remove fake KubeVirt CRDs (installed as controller stubs) — they conflict
-  # with the real operator's CRDs.
-  kubectl delete crd virtualmachines.kubevirt.io virtualmachineinstances.kubevirt.io 2>/dev/null || true
+  # Remove the infra stubs only before KubeVirt has installed its CRD.
+  # Re-running this script must not delete real VM CRDs.
+  if ! kubectl get crd kubevirts.kubevirt.io >/dev/null 2>&1; then
+    kubectl delete crd virtualmachines.kubevirt.io virtualmachineinstances.kubevirt.io 2>/dev/null || true
+  fi
 
   local version
   version=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
   log "KubeVirt version: ${version}"
 
   # KubeVirt's CRD exceeds the client-side apply annotation limit.
-  kubectl apply --server-side -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml" 2>&1 | tail -3
+  # Reclaim fields from a partial client-side installation on retry.
+  kubectl apply --server-side --force-conflicts -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml" 2>&1 | tail -3
   kubectl wait --for=condition=available --timeout=120s -n kubevirt deployments -l kubevirt.io
 
   kubectl apply --server-side -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-cr.yaml"
