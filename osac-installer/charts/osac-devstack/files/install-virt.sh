@@ -36,10 +36,11 @@ install_kubevirt() {
   version=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
   log "KubeVirt version: ${version}"
 
-  kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml" 2>&1 | tail -3
+  # KubeVirt's CRD exceeds the client-side apply annotation limit.
+  kubectl apply --server-side -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml" 2>&1 | tail -3
   kubectl wait --for=condition=available --timeout=120s -n kubevirt deployments -l kubevirt.io
 
-  kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-cr.yaml"
+  kubectl apply --server-side -f "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-cr.yaml"
   kubectl -n kubevirt wait kv kubevirt --for condition=Available --timeout=300s
 
   # Register the l2bridge network-binding plugin (replicates what HCO does on
