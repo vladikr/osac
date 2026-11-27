@@ -846,6 +846,7 @@ func (t *task) mutateBMI(ctx context.Context, object *bmfov1alpha1.BareMetalInst
 	}
 
 	instanceType := instanceTypeResp.GetObject()
+	object.Annotations[annotations.BareMetalInstanceType] = instanceTypeRef.GetId()
 	if instanceType.GetSpec().HasHostLabelSelector() {
 		for key, value := range instanceType.GetSpec().GetHostLabelSelector().GetMatchLabels() {
 			object.Spec.Selector.HostSelector[key] = value

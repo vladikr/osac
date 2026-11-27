@@ -80,7 +80,7 @@ properties for the real GB300 trays.
 
    | Environment variable | Value |
    | --- | --- |
-   | `NICO_BMAAS_OSAC_SUBNET_ID` | New OSAC Subnet ID |
+   | `NICO_BMAAS_OSAC_SUBNET_ID` | New OSAC Subnet ID, or empty to serve every Subnet of the tenant (step 5) |
    | `NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE` | `FNN` |
    | `NICO_BMAAS_FNN_AUTO_CREATE` | `true` |
    | `NICO_BMAAS_SITE_ID` | NICo Site UUID (`d88d241d-a727-49c9-9fbb-521595a4eaa5` in the lab) |
@@ -99,7 +99,15 @@ properties for the real GB300 trays.
    AWX Kubernetes credential and this new NICo credential. Map the
    `centos-stream-10` DiskImage ID to the validated NICo Operating System
    `3403dd3c-83c3-474a-b62b-1aeaddf81ac4`. The operator selects the
-   credential from this exact tenant/Subnet binding. The pilot catalog seed
+   credential from this exact tenant/Subnet binding.
+
+   Instead of a Subnet, the entry can name the OSAC BareMetalInstanceType ID
+   (`osacBareMetalInstanceTypeID`, from
+   `osac get baremetalinstancetypes nico-gb300-nvl72 -o json | jq -r .id`). One entry then serves
+   every Subnet of the tenant, so a new Subnet needs no ConfigMap or
+   credential change. Leave `NICO_BMAAS_OSAC_SUBNET_ID` empty on that
+   credential; the role uses the BMI Subnet and the module rejects a Subnet
+   whose CIDR is outside the IP Block. The pilot catalog seed
    script registers the same tenant-scoped DiskImage record used in the
    original Launchpad pilot.
 

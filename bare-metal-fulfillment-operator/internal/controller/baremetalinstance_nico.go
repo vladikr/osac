@@ -130,15 +130,26 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaS(ctx context.Context, bm
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseProgressing
 		return ctrl.Result{}, nil
 	}
+	// Like an unsupported DiskImage, an unbound Subnet stays terminal: the
+	// tenant already sees FAILED, so a later binding must not provision it.
+	if condition := bmi.GetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete); condition != nil &&
+		condition.Reason == v1alpha1.HostConditionReasonUnsupportedSubnet && !bmi.Status.NicoCreateAttempted {
+		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
+		return ctrl.Result{}, nil
+	}
 	boundCtx, bindings, err := r.withNicoCredentials(ctx, bmi)
-	if err != nil {
-		reason := v1alpha1.HostConditionReasonTemplateFailed
-		if errors.Is(err, errNicoSubnetUnbound) {
-			reason = v1alpha1.HostConditionReasonUnsupportedSubnet
-		}
+	if errors.Is(err, errNicoSubnetUnbound) {
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
 		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
-			reason, "NICo tenant binding is unavailable")
+			v1alpha1.HostConditionReasonUnsupportedSubnet, err.Error())
+		return ctrl.Result{}, nil
+	}
+	if err != nil {
+		// A configuration error, such as a missing or invalid bindings file, is
+		// retried after the administrator fixes the ConfigMap.
+		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
+		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
+			v1alpha1.HostConditionReasonTemplateFailed, "NICo tenant binding is unavailable")
 		return ctrl.Result{}, err
 	}
 

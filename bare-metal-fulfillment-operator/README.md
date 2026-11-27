@@ -174,10 +174,10 @@ System IDs, **not** NICo credential values:
 version: 2
 bindings:
   - osacTenantID: <OSAC tenant ID>
-    osacSubnetID: <OSAC Subnet ID>
+    osacBareMetalInstanceTypeID: <OSAC BareMetalInstanceType ID>
     credentialIDs: [<AWX required Kubernetes credential ID>, <AWX NICo credential ID>]
   - osacTenantID: <second OSAC tenant ID>
-    osacSubnetID: <second OSAC Subnet ID>
+    osacSubnetID: <OSAC Subnet ID>
     credentialIDs: [<AWX required Kubernetes credential ID>, <second AWX NICo credential ID>]
 operatingSystems:
   - diskImageID: <OSAC DiskImage ID>
@@ -216,15 +216,29 @@ NICo; an Instance that never got a Machine is released once it is gone.
 also reported IDs, which are always saved and released.
 
 `osacTenantID` is the exact BMI `osac.openshift.io/tenant` annotation value
-(currently the OSAC tenant name). `osacSubnetID` is the public OSAC Subnet ID
-in `spec.networkAttachments[0].subnetRef`. The AWX credential independently
-contains the corresponding NICo Tenant, VPC, and Subnet IDs.
+(currently the OSAC tenant name). Each binding sets exactly one of:
 
-The operator selects a binding by exact tenant annotation and Subnet reference
-before a NICo create or delete launch. The selected AWX credential must inject
-the matching `NICO_BMAAS_OSAC_TENANT_ID` and `NICO_BMAAS_OSAC_SUBNET_ID` along
-with NICo tenant, network, and scoped authentication values; the role validates
-both OSAC IDs again before a NICo REST call. `credentialIDs` is the complete
+- `osacBareMetalInstanceTypeID`: the OSAC BareMetalInstanceType ID, which the
+  fulfillment service copies to the BMI `osac.openshift.io/bare-metal-instance-type-id`
+  annotation. The binding serves every Subnet of the tenant. Use it with
+  credentials that set `NICO_BMAAS_FNN_AUTO_CREATE=true`, which create the NICo
+  VPC and Prefix from the Subnet; the role checks that the Subnet CIDR fits the
+  configured NICo IP Block.
+- `osacSubnetID`: the public OSAC Subnet ID in
+  `spec.networkAttachments[0].subnetRef`. Use it with credentials that carry a
+  pre-created NICo VPC and Prefix for that Subnet.
+
+The operator selects the binding that matches the tenant annotation and either
+the BMI BareMetalInstanceType or its Subnet before a NICo create or delete
+launch. More than one match blocks the launch. A BMI with no matching binding
+fails with `ProvisionTemplateComplete=False`, reason `UnsupportedSubnet`,
+before any NICo call. Like `UnsupportedDiskImage`, that rejection is terminal:
+after the binding is added, the tenant recreates the BMI. A missing or invalid
+bindings file is a configuration error instead and is retried. The selected
+AWX credential must inject the matching `NICO_BMAAS_OSAC_TENANT_ID` along with
+NICo tenant, network, and scoped authentication values. A Subnet credential
+also injects `NICO_BMAAS_OSAC_SUBNET_ID`; the role validates the OSAC IDs again
+before a NICo REST call. `credentialIDs` is the complete
 credential set for the job because AWX launch-time credentials override the
 job template's defaults. The create/delete bare-metal job templates must have
 `ask_credential_on_launch: true`; the operator refuses to launch with a
@@ -264,8 +278,8 @@ reachability or SecurityGroup enforcement. See the
 
 Provision the ConfigMap and AWX credentials before enabling NICo BMaaS. If the
 binding is absent or malformed, the operator does not authorize a create and
-retains an existing BMI's cleanup finalizer. Keep a tenant/Subnet binding to
-the **same NICo tenant** while any BMI created under it exists. Credentials
+retains an existing BMI's cleanup finalizer. Keep a binding to the **same NICo
+tenant** while any BMI created under it exists. Credentials
 may be rotated for that identity; do not rebind active BMIs to a different
 NICo tenant. AWX numeric credential IDs are deployment-specific and must be
 updated after AWX is recreated. A durable binding identity and credential-name
