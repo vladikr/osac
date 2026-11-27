@@ -18,12 +18,13 @@
     - name: Verify pinned placement and persisted network intents before NICo writes
       ansible.builtin.assert:
         that:
+          - nico_bmaas_fnn_auto_create | bool
           - nico_bmaas_expected_site_id | default('') | length > 0
           - nico_bmaas_expected_site_id == nico_bmaas_site_id
           - nico_bmaas_vpc_realization_id | default('') | length > 0
           - nico_bmaas_prefix_realization_id | default('') | length > 0
         fail_msg: NICo placement or network intent is missing or differs from provider configuration
-      when: nico_bmaas_fnn_auto_create | bool
+      when: (bare_metal_instance.metadata.annotations | default({})).get('osac.openshift.io/placement-target-id', '') | length > 0
 
     - name: Reject SecurityGroups that the FNN pilot cannot enforce
       ansible.builtin.assert:

@@ -12,12 +12,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import ProxyHandler, Request, build_opener
 
+import yaml
+
 
 NAMESPACE = "osac"
 DISK_IMAGE_ID = "centos-stream-10"
 OPERATING_SYSTEM_ID = "3403dd3c-83c3-474a-b62b-1aeaddf81ac4"
-CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-pilot-type"
-CREDENTIAL_NAME = "nico-tenant1-fnn-pilot"
+CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-placement-type"
+CREDENTIAL_NAME = "nico-tenant1-fnn-placement"
 AWX_PORT = "18084"
 
 
@@ -48,6 +50,53 @@ def ensure_k8s_object(obj, expected_content):
         return
     kubectl("apply", "-f", "-", input_text=json.dumps(obj))
     print(f"{obj['kind']}/{obj['metadata']['name']}: created")
+
+
+def configure_binding(credential_ids):
+    name = "osac-nico-tenant-bindings"
+    current = k8s_object("configmap", name)
+    document = {"version": 2, "bindings": [], "operatingSystems": []}
+    if current is not None:
+        document = yaml.safe_load(current["data"]["bindings.yaml"])
+        if document["version"] != 2:
+            raise RuntimeError("expected pilot binding version 2")
+    row = {
+        "osacTenantID": "tenant1",
+        "osacBareMetalInstanceTypeID": "nico-gb300-nvl72",
+        "placementTargetID": "nico-gb300-fnn-nvl72",
+        "providerConfigRef": "nico-gb300-pool-nvl72",
+        "networkConfigRef": "nico-fnn-nvl72-site",
+        "siteID": "d88d241d-a727-49c9-9fbb-521595a4eaa5",
+        "credentialIDs": credential_ids,
+    }
+    rows = document["bindings"]
+    matches = [i for i, item in enumerate(rows)
+               if item["osacTenantID"] == row["osacTenantID"] and
+               (item.get("osacSubnetID") == "01a21a44-015e-7849-9e5a-634c000d0d48" or
+                item.get("osacBareMetalInstanceTypeID") == row["osacBareMetalInstanceTypeID"])]
+    if len(matches) > 1:
+        raise RuntimeError("ambiguous pilot binding")
+    if matches:
+        rows[matches[0]] = row
+    else:
+        rows.append(row)
+    systems = document.setdefault("operatingSystems", [])
+    image = {"diskImageID": DISK_IMAGE_ID, "nicoOperatingSystemID": OPERATING_SYSTEM_ID}
+    if any(item["diskImageID"] == DISK_IMAGE_ID and item != image for item in systems):
+        raise RuntimeError("pilot DiskImage already maps to a different NICo Operating System")
+    if image not in systems:
+        systems.append(image)
+    data = {"bindings.yaml": yaml.safe_dump(document, sort_keys=False)}
+    if current is None:
+        kubectl("create", "-f", "-", input_text=json.dumps(
+            {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": name}, "data": data}))
+    elif yaml.safe_load(current["data"]["bindings.yaml"]) == document:
+        print(f"ConfigMap/{name}: already matches")
+        return
+    else:
+        patch = {"metadata": {"resourceVersion": current["metadata"]["resourceVersion"]}, "data": data}
+        kubectl("patch", "configmap", name, "--type=merge", "--patch", json.dumps(patch))
+    print(f"ConfigMap/{name}: applied target binding")
 
 
 def main():
@@ -108,6 +157,9 @@ def main():
                 time.sleep(1)
         if not project or not project.get("organization"):
             raise RuntimeError("expected one osac-aap project with an AWX organization")
+        expected = os.environ.get("NICO_PILOT_EXPECTED_REVISION")
+        if expected and project.get("scm_revision") != expected:
+            raise RuntimeError(f"AWX project is at {project.get('scm_revision')}, expected {expected}")
         organization = project["organization"]
 
         for template_name in ("osac-create-bare-metal-instance", "osac-delete-bare-metal-instance"):
@@ -165,38 +217,15 @@ def main():
             "inputs": {"client_secret": client_secret, "ca_bundle": ca_bundle},
         }
         credential = unique_result("/credentials/", CREDENTIAL_NAME)
-        if credential and credential.get("credential_type") != credential_type["id"]:
-            raise RuntimeError("existing NICo AWX credential has a different type")
+        if credential and (credential.get("credential_type") != credential_type["id"] or
+                           credential.get("organization") != organization):
+            raise RuntimeError("existing NICo AWX credential has a different type or organization")
         if credential:
             credential = awx("PATCH", f"/credentials/{credential['id']}/", credential_body)
         else:
             credential = awx("POST", "/credentials/", credential_body)
 
-        binding = (
-            "version: 2\n"
-            "bindings:\n"
-            "  - osacTenantID: tenant1\n"
-            "    osacBareMetalInstanceTypeID: nico-gb300-nvl72\n"
-            "    placementTargetID: nico-gb300-fnn-nvl72\n"
-            "    providerConfigRef: nico-gb300-pool-nvl72\n"
-            "    networkConfigRef: nico-fnn-nvl72-site\n"
-            "    siteID: d88d241d-a727-49c9-9fbb-521595a4eaa5\n"
-            f"    credentialIDs: [{kube_credential['id']}, {credential['id']}]\n"
-            "operatingSystems:\n"
-            f"  - diskImageID: {DISK_IMAGE_ID}\n"
-            f"    nicoOperatingSystemID: {OPERATING_SYSTEM_ID}\n"
-        )
-        binding_map = {"apiVersion": "v1", "kind": "ConfigMap",
-                       "metadata": {"name": "osac-nico-tenant-bindings", "namespace": NAMESPACE},
-                       "data": {"bindings.yaml": binding}}
-        existing_binding = k8s_object("configmap", "osac-nico-tenant-bindings")
-        if existing_binding is None or existing_binding.get("data") != binding_map["data"]:
-            # This replaces the pilot's earlier Subnet-specific row with one
-            # type/target binding. It carries no credential values.
-            kubectl("apply", "-f", "-", input_text=json.dumps(binding_map))
-            print("ConfigMap/osac-nico-tenant-bindings: applied target binding")
-        else:
-            print("ConfigMap/osac-nico-tenant-bindings: already matches")
+        configure_binding([kube_credential["id"], credential["id"]])
         for name, filename, content in (
             ("osac-inventory-config-nico-pilot", "inventory.yaml",
              "name: nico-inventory\ntype: nico\nhostClass: nico\noptions: {}\n"),

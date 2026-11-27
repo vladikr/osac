@@ -240,10 +240,10 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
 	instanceID, instanceOK := status.ExtraVars["nicoInstanceID"].(string)
 	machineID, machineOK := status.ExtraVars["nicoMachineID"].(string)
 	ipAddress, ipOK := status.ExtraVars["nicoIPAddress"].(string)
-	vpcID, vpcOK := status.ExtraVars["nicoVpcID"].(string)
-	prefixID, prefixOK := status.ExtraVars["nicoVpcPrefixID"].(string)
+	vpcID, _ := status.ExtraVars["nicoVpcID"].(string)
+	prefixID, _ := status.ExtraVars["nicoVpcPrefixID"].(string)
 	if !instanceOK || instanceID == "" || !machineOK || machineID == "" || !ipOK || ipAddress == "" ||
-		!vpcOK || vpcID == "" || !prefixOK || prefixID == "" {
+		(bmi.Annotations["osac.openshift.io/placement-target-id"] != "" && (vpcID == "" || prefixID == "")) {
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
 		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
 			v1alpha1.HostConditionReasonTemplateFailed,

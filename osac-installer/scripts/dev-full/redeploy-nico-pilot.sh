@@ -11,7 +11,7 @@ source "${installer_dir}/scripts/lib.sh"
 namespace="${NS:?NS is required}"
 kind_cluster="${KIND_CLUSTER_NAME:-osac-dev}"
 github_repo="${NICO_PILOT_GITHUB_REPO:-vladikr/osac}"
-branch="${NICO_PILOT_BRANCH:-no-issue/nico-bmaas-integration-audit}"
+branch="${NICO_PILOT_BRANCH:-osac-7351-nico-fnn-pilot}"
 container_tool="${NICO_PILOT_CONTAINER_TOOL:-docker}"
 enable_bmf="${NICO_PILOT_ENABLE_BMF:-no}"
 

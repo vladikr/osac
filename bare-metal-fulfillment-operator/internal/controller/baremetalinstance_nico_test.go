@@ -190,6 +190,14 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		Expect(k8sClient.Get(ctx, req.NamespacedName, &v1alpha1.BareMetalInstance{})).ToNot(Succeed())
 	})
 
+	It("accepts a legacy unpinned job without FNN network artifacts", func() {
+		delete(provider.outputs, "nicoVpcID")
+		delete(provider.outputs, "nicoVpcPrefixID")
+		reconcile()
+		reconcile()
+		Expect(reconcile().Status.Phase).To(Equal(v1alpha1.BareMetalInstancePhaseReady))
+	})
+
 	It("selects the second tenant credential without changing the BMI contract", func() {
 		// Network attachments are immutable. Create a distinct BMI for the
 		// second tenant instead of changing the first tenant's allocation.

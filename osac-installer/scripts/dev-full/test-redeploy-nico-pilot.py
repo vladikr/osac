@@ -28,7 +28,7 @@ class RedeployNicoPilotTests(unittest.TestCase):
             "git": f"""#!/bin/sh
 echo "git $*" >> "$CALLS"
 case "$*" in
-  *'branch --show-current'*) echo no-issue/nico-bmaas-integration-audit ;;
+  *'branch --show-current'*) echo osac-7351-nico-fnn-pilot ;;
   *'rev-parse HEAD'*) echo {REVISION} ;;
 esac
 """,
@@ -58,7 +58,7 @@ esac
             NS="osac",
             KIND_CLUSTER_NAME="osac-dev",
             NICO_PILOT_GITHUB_REPO="vladikr/osac",
-            NICO_PILOT_BRANCH="no-issue/nico-bmaas-integration-audit",
+            NICO_PILOT_BRANCH="osac-7351-nico-fnn-pilot",
             NICO_PILOT_CONTAINER_TOOL="docker",
             NICO_PILOT_ENABLE_BMF="no",
             FAKE_CONTEXT="kind-osac-dev",

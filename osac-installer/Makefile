@@ -327,7 +327,7 @@ kind-load-images: ## Load previously built dev-full images into Kind (PLATFORM=k
 # This is a development-only shortcut for the existing Launchpad pilot VM.
 # It updates the Kind control plane; it never installs into the NICo hub.
 NICO_PILOT_GITHUB_REPO ?= vladikr/osac
-NICO_PILOT_BRANCH ?= no-issue/nico-bmaas-integration-audit
+NICO_PILOT_BRANCH ?= osac-7351-nico-fnn-pilot
 NICO_PILOT_CONTAINER_TOOL ?= docker
 NICO_PILOT_ENABLE_BMF ?= no
 
@@ -343,9 +343,25 @@ redeploy-nico-pilot: ## Stage NICo pilot code; set NICO_PILOT_ENABLE_BMF=yes aft
 		NICO_PILOT_ENABLE_BMF="$(NICO_PILOT_ENABLE_BMF)" \
 		bash scripts/dev-full/redeploy-nico-pilot.sh
 
+.PHONY: upgrade-nico-fnn-pilot
+upgrade-nico-fnn-pilot: ## Upgrade the existing Launchpad pilot and validate its placement target
+	@test "$(NS)" = osac && test "$(PLATFORM)/$(PROFILE)" = kind/dev-full
+	@test "$$(kubectl config current-context)" = kind-osac-dev
+	@python3 -c 'import yaml' || { echo 'Install python3-pyyaml on the pilot VM first' >&2; exit 1; }
+	@test -s "$$HOME/.local/share/nico-pilot/ca-bundle.crt" && test -s "$$HOME/.local/share/nico-pilot/ncx-service-secret.txt"
+	@kubectl -n "$(NS)" get baremetalinstances -o json | jq -e \
+		'all(.items[] | select(.spec.templateID == "osac.templates.nico_bm_host_provisioning"); .metadata.deletionTimestamp == null and .status.phase == "Ready")' >/dev/null || \
+		{ echo 'Finish outstanding NICo BMI operations before upgrading the pilot' >&2; exit 1; }
+	$(MAKE) redeploy-nico-pilot NICO_PILOT_ENABLE_BMF=yes
+	bash scripts/dev-full/seed-nico-bmi-pilot.sh
+	NICO_PILOT_EXPECTED_REVISION="$$(git rev-parse HEAD)" python3 scripts/dev-full/configure-nico-fnn-pilot.py
+	kubectl -n "$(NS)" rollout restart deployment/bmf-operator-controller-manager
+	kubectl -n "$(NS)" rollout status deployment/bmf-operator-controller-manager --timeout=5m
+
 .PHONY: nico-pilot-redeploy-test
 nico-pilot-redeploy-test: ## Test the NICo pilot redeploy guards and command wiring
 	python3 scripts/dev-full/test-redeploy-nico-pilot.py
+	python3 scripts/dev-full/test-configure-nico-fnn-pilot.py
 ##@ Entity: Infra
 
 .PHONY: install-infra

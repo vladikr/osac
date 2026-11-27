@@ -44,7 +44,31 @@ paths, isolation, and policy enforcement. A separate simulated Netris fabric
 can test OSAC's Netris API workflow but cannot establish those site-level
 properties for the real GB300 trays.
 
-## Launchpad setup
+## Upgrade the existing Launchpad VM
+
+Run as `cloud-user` on `osac-nico-fnn-pilot`. Finish any in-flight BMI deletion
+first. This upgrade reuses the existing Kind cluster, OSAC releases, NICo CA
+and client secret. On CentOS, install `python3-pyyaml` if `python3 -c 'import yaml'`
+fails.
+
+```bash
+cd "$HOME/src/osac"
+git fetch https://github.com/vladikr/osac.git osac-7351-nico-fnn-pilot
+git switch osac-7351-nico-fnn-pilot
+git merge --ff-only FETCH_HEAD
+export KUBECONFIG="$HOME/.kube/osac-dev-kind-root.kubeconfig"
+make -C osac-installer upgrade-nico-fnn-pilot PLATFORM=kind PROFILE=dev-full NS=osac
+bash osac-installer/scripts/dev-full/validate-nico-placement-target.sh --show
+```
+
+The upgrade builds and loads all four images, upgrades Helm, seeds the
+private target and existing catalog, switches the pilot binding to the new AWX
+credential, and validates the NICo tenant IP Block. The target should show
+`id=nico-gb300-fnn-nvl72`, `status.ready=true` and
+`status.observed_ip_block_cidr=10.181.0.0/24`. The credential binding now
+selects `tenant1` and `nico-gb300-nvl72` and names the target.
+
+## Prepare the validation network
 
 1. Verify the NICo Site's FNN routing profile, parked-pool routing, and
    services return path with the site operator. The REST API cannot attest the
@@ -60,83 +84,69 @@ properties for the real GB300 trays.
    Subnet and SecurityGroup for the selected CIDR. For example:
 
    ```bash
-   free_cidr='10.180.66.0/24' # Example only: verify this CIDR is free in the derived block
-   osac create virtualnetwork --name nico-fnn-test-vpc --ipv4-cidr "$free_cidr"
-   osac create subnet --name nico-fnn-test-subnet \
-     --virtual-network nico-fnn-test-vpc --ipv4-cidr "$free_cidr"
-   osac create securitygroup --name nico-fnn-test-sg \
-     --virtual-network nico-fnn-test-vpc \
+   free_cidr='10.181.0.48/28' # Use only if confirmed free in OSAC and NICo
+   osac create virtualnetwork --name nico-fnn-placement-vpc --ipv4-cidr "$free_cidr"
+   osac create subnet --name nico-fnn-placement-subnet \
+     --virtual-network nico-fnn-placement-vpc --ipv4-cidr "$free_cidr"
+   osac create securitygroup --name nico-fnn-placement-sg \
+     --virtual-network nico-fnn-placement-vpc \
      --egress protocol=all,ipv4-cidr=0.0.0.0/0
-   osac get virtualnetworks nico-fnn-test-vpc
-   osac get subnets nico-fnn-test-subnet
-   osac get securitygroups nico-fnn-test-sg
+   osac get virtualnetworks nico-fnn-placement-vpc
+   osac get subnets nico-fnn-placement-subnet
+   osac get securitygroups nico-fnn-placement-sg
    ```
 
-4. Configure one NICo AWX BMI credential for the OSAC tenant and instance type.
-   A new Subnet inside the validated IP Block needs no credential change.
-   Preserve the NICo authentication and Instance Type settings. Use these fields in the
-   AWX custom credential type's environment injector and supply their values
-   on the credential:
+## Configuration applied by the upgrade
 
-   | Environment variable | Value |
-   | --- | --- |
-   | `NICO_BMAAS_OSAC_SUBNET_ID` | Empty; the job reads the BMI Subnet |
-   | `NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE` | `FNN` |
-   | `NICO_BMAAS_FNN_AUTO_CREATE` | `true` |
-   | `NICO_BMAAS_SITE_ID` | NICo Site UUID (`d88d241d-a727-49c9-9fbb-521595a4eaa5` in the lab) |
-   | `NICO_BMAAS_IP_BLOCK_ID` | Ready derived tenant IP Block UUID |
-   | `NICO_BMAAS_ROUTING_PROFILE` | Validated NICo FNN routing profile (for example `external`) |
-   | `NICO_BMAAS_VPC_ID`, `NICO_BMAAS_VPC_PREFIX_ID`, `NICO_BMAAS_SUBNET_ID` | Empty |
-   | `NICO_BMAAS_PILOT_ALLOW_UNENFORCED_SECURITY_GROUPS` | `true` only for this isolated pilot |
+The helper configures one NICo AWX BMI credential for the OSAC tenant and instance type.
+A new Subnet inside the validated IP Block needs no credential change.
+Preserve the NICo authentication and Instance Type settings. Use these fields in the
+AWX custom credential type's environment injector and supply their values
+on the credential:
 
-   The SecurityGroup override is explicit because the OSAC API requires a
-   group for this nondefault network, while this pilot cannot attest that a
-   corresponding NICo NSG is enforced. Do not present this as a firewall test.
-   Keep all tokens and client secrets in AWX, never in the binding ConfigMap.
+| Environment variable | Value |
+| --- | --- |
+| `NICO_BMAAS_OSAC_SUBNET_ID` | Empty; the job reads the BMI Subnet |
+| `NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE` | `FNN` |
+| `NICO_BMAAS_FNN_AUTO_CREATE` | `true` |
+| `NICO_BMAAS_SITE_ID` | NICo Site UUID (`d88d241d-a727-49c9-9fbb-521595a4eaa5` in the lab) |
+| `NICO_BMAAS_IP_BLOCK_ID` | Ready derived tenant IP Block UUID |
+| `NICO_BMAAS_ROUTING_PROFILE` | Validated NICo FNN routing profile (for example `external`) |
+| `NICO_BMAAS_VPC_ID`, `NICO_BMAAS_VPC_PREFIX_ID`, `NICO_BMAAS_SUBNET_ID` | Empty |
+| `NICO_BMAAS_PILOT_ALLOW_UNENFORCED_SECURITY_GROUPS` | `true` only for this isolated pilot |
 
-5. Register private target `nico-gb300-fnn-nvl72` for `tenant1`, OSAC type
-   `nico-gb300-nvl72`, the NICo site, and provider/network configuration references.
-   Validate the actual NICo derived tenant IP Block before marking the target Ready.
-   The `version: 2` binding names this target and the OSAC tenant/type, with the
-   AWX Kubernetes and NICo credential IDs. Map the
-   `centos-stream-10` DiskImage ID to the validated NICo Operating System
-   `3403dd3c-83c3-474a-b62b-1aeaddf81ac4`. Create and dry-run reject a BMI
-   whose selected Subnet falls outside the target's observed IP Block. The pilot catalog seed
-   script registers the same tenant-scoped DiskImage record used in the
-   original Launchpad pilot.
+The SecurityGroup override is explicit because the OSAC API requires a
+group for this nondefault network, while this pilot cannot attest that a
+corresponding NICo NSG is enforced. Do not present this as a firewall test.
+Keep all tokens and client secrets in AWX, never in the binding ConfigMap.
 
-   The DiskImage record points to the pinned CentOS Stream 10 aarch64 QCOW2
-   at `http://172.16.2.122/osac/CentOS-Stream-GenericCloud-10-20261103.0.aarch64.qcow2`,
-   matching the NICo Operating System's `image_url`. Its `source_type` is
-   `SOURCE_TYPE_REGISTRY` because that is the only type the current OSAC API
-   supports; this is a pilot representation gap, not an OCI installation.
+The seed script registers private target `nico-gb300-fnn-nvl72` for `tenant1`, OSAC type
+`nico-gb300-nvl72`, the NICo site, and provider/network configuration references.
+The validation script checks the actual derived tenant IP Block before marking the target Ready.
+The `version: 2` binding names this target and the OSAC tenant/type, with the
+AWX Kubernetes and NICo credential IDs. Map the
+`centos-stream-10` DiskImage ID to the validated NICo Operating System
+`3403dd3c-83c3-474a-b62b-1aeaddf81ac4`. Create and dry-run reject a BMI
+whose selected Subnet falls outside the target's observed IP Block. The pilot catalog seed
+script registers the same tenant-scoped DiskImage record used in the
+original Launchpad pilot.
 
-   On the isolated Launchpad VM described here, after verifying the IDs and
-   source URL, `seed-nico-bmi-pilot.sh` registers the target and
-   `python3 osac-installer/scripts/dev-full/configure-nico-fnn-pilot.py`
-   creates the dedicated AWX credential and binding, then validates the target.
-   It discovers the
-   AWX Kubernetes credential ID and creates the two BMF configuration Secrets.
-   The helper reads the NICo CA and client secret from
-   `$HOME/.local/share/nico-pilot/` and never puts their values in the binding.
-   It does not enable BMF or create a NICo resource. Its fixed Site,
-   IP Block, and OS IDs are specific to this test environment.
+The DiskImage record points to the pinned CentOS Stream 10 aarch64 QCOW2
+at `http://172.16.2.122/osac/CentOS-Stream-GenericCloud-10-20261103.0.aarch64.qcow2`,
+matching the NICo Operating System's `image_url`. Its `source_type` is
+`SOURCE_TYPE_REGISTRY` because that is the only type the current OSAC API
+supports; this is a pilot representation gap, not an OCI installation.
 
-6. On the Launchpad pilot VM, deploy this branch from the contributor fork:
-
-   ```bash
-   git -C "$HOME/src/osac" fetch https://github.com/vladikr/osac.git \
-     osac-7351-nico-placement-realization
-   git -C "$HOME/src/osac" switch -c osac-7351-nico-placement-realization FETCH_HEAD
-   export KUBECONFIG="$HOME/.kube/osac-dev-kind-root.kubeconfig"
-   make -C "$HOME/src/osac/osac-installer" redeploy-nico-pilot \
-     PLATFORM=kind PROFILE=dev-full NS=osac NICO_PILOT_ENABLE_BMF=yes \
-     NICO_PILOT_BRANCH=osac-7351-nico-placement-realization
-   ```
-
-   If the branch already exists on that VM, switch to it and use the same
-   `make` command. The redeploy target requires a clean working tree. Check
-   the AWX project sync and BMF rollout after deployment.
+On the isolated Launchpad VM described here, after verifying the IDs and
+source URL, `seed-nico-bmi-pilot.sh` registers the target and
+`python3 osac-installer/scripts/dev-full/configure-nico-fnn-pilot.py`
+creates the dedicated AWX credential and binding, then validates the target.
+It discovers the
+AWX Kubernetes credential ID and creates the two BMF configuration Secrets.
+The helper reads the NICo CA and client secret from
+`$HOME/.local/share/nico-pilot/` and never puts their values in the binding.
+It does not enable BMF or create a NICo resource. Its fixed Site,
+IP Block, and OS IDs are specific to this test environment.
 
 ## Test and observe
 
@@ -144,26 +154,58 @@ Create a BMI with the seeded NICo catalog item, approved DiskImage, and new
 Subnet/SG IDs. Use the same SSH key and instance type as the proven BMI pilot:
 
 ```bash
-pilot_key='/path/to/public-key.pub'
-subnet_id='<new-subnet-id>'
-sg_id='<new-sg-id>'
+pilot_key="$HOME/.ssh/nico-fnn-pilot.pub"
+subnet_id=$(osac get subnets nico-fnn-placement-subnet -o json | jq -er .id)
+sg_id=$(osac get securitygroups nico-fnn-placement-sg -o json | jq -er .id)
+catalog_id=$(osac get baremetalinstancecatalogitems nico-gb300-fnn-pilot -o json | jq -er .id)
 osac create baremetalinstance \
-  --catalog-item 01a21a54-a3eb-717b-8b42-7f52dc339330 \
-  --name nico-fnn-test --instance-type nico-gb300-nvl72 \
-  --disk-image centos-stream-10 --ssh-key "$(cat "$pilot_key")" \
-  --network-attachment \
-  "subnet=$subnet_id,interface=data-0,primary,security-groups=$sg_id"
-osac get baremetalinstances nico-fnn-test
+  --catalog-item "$catalog_id" --name nico-fnn-placement-test \
+  --instance-type nico-gb300-nvl72 --disk-image centos-stream-10 \
+  --ssh-key "$(cat "$pilot_key")" \
+  --network-attachment "subnet=$subnet_id,interface=data-0,primary,security-groups=$sg_id"
+bmi_id=$(osac get baremetalinstances nico-fnn-placement-test -o json | jq -er .id)
 ```
 
-Inspect the `bmi-<BMI-ID>` CR's `status.provisioningJobs` and `nicoInstanceID` /
-`nicoMachineID`, `nicoVpcID`, and `nicoVpcPrefixID`. The private Fulfillment
-`bare_metal_placement_targets` API shows the selected target; the private
-`network_realizations` API shows separate VPC and Prefix records, with confirmed
-backend IDs after the BMI succeeds. Confirm in NICo that the VPC has the OSAC ownership labels,
-the Prefix has the exact OSAC Subnet CIDR, the Instance uses that Prefix, and
-the Machine reaches Ready after OSAC deletion. Creating a second BMI on the
-same Subnet should reuse the VPC/Prefix (when capacity permits).
+After the BMI CR appears, run the following during provisioning and again once
+OSAC reports `RUNNING`. The inspector follows the two realization IDs on this
+specific BMI. It reads the private Fulfillment API using the controller
+credential on the pilot VM.
+
+```bash
+bash osac-installer/scripts/dev-full/validate-nico-placement-target.sh --show "$bmi_id"
+kubectl -n osac get baremetalinstance "bmi-$bmi_id" -o json |
+  jq '.status | {phase,nicoInstanceID,nicoMachineID,nicoVpcID,nicoVpcPrefixID,provisioningJobs}'
+osac get baremetalinstances "$bmi_id" -o json |
+  jq '.status | {state,network_attachment_statuses}'
+```
+
+For a fresh network, expect two Pending records during provisioning. On success
+both become Ready. The Prefix record's `spec.parent_realization_id` should
+equal the VPC record's ID. Compare the two `status.backend_resource_id` values
+with the BMI's `nicoVpcID` and `nicoVpcPrefixID`. On the control plane with
+`nicocli`, use the reported IDs to check the actual provider objects:
+
+```bash
+nicocli --org ncx vpc get "$vpc_id" | jq '{id,status,routingProfile,networkVirtualizationType,labels}'
+nicocli --org ncx vpc-prefix list | jq --arg id "$prefix_id" '.[] | select(.id == $id) | {id,vpcId,prefix,ipBlockId,status}'
+nicocli --org ncx instance get "$instance_id" | jq '{id,status,machineId,vpcId,interfaces}'
+```
+
+On the pilot VM, verify the reported IP and OS:
+
+```bash
+ip=$(osac get baremetalinstances "$bmi_id" -o json |
+  jq -er '.status.network_attachment_statuses[] | select(.primary) | .ip_address')
+ssh -i "$HOME/.ssh/nico-fnn-pilot" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+  "cloud-user@$ip" 'hostname; . /etc/os-release; echo "$PRETTY_NAME"; uname -m'
+```
+
+When finished with the host, release it and wait for the BMI finalizers:
+
+```bash
+osac delete baremetalinstances "$bmi_id"
+kubectl -n osac wait --for=delete "baremetalinstance/bmi-$bmi_id" --timeout=45m
+```
 
 On BMI delete, NICo releases the Instance and the original Machine returns to
 Ready. The VPC/Prefix and realization records remain for reuse. Parent-network
