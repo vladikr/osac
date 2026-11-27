@@ -109,6 +109,15 @@ properties for the real GB300 trays.
    `SOURCE_TYPE_REGISTRY` because that is the only type the current OSAC API
    supports; this is a pilot representation gap, not an OCI installation.
 
+   On the isolated Launchpad VM described here, after verifying the IDs and
+   source URL, `python3 osac-installer/scripts/dev-full/configure-nico-fnn-pilot.py`
+   creates the dedicated AWX credential and this binding. It discovers the
+   AWX Kubernetes credential ID and creates the two BMF configuration Secrets.
+   The helper reads the NICo CA and client secret from
+   `$HOME/.local/share/nico-pilot/` and never puts their values in the binding.
+   It does not enable BMF or create a NICo resource. Its fixed Subnet, Site,
+   IP Block, and OS IDs are specific to this test environment.
+
 6. On the Launchpad pilot VM, deploy this branch from the contributor fork:
 
    ```bash
