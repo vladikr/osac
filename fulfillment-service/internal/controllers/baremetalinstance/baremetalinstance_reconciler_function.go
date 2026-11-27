@@ -69,6 +69,8 @@ const (
 	messageFailureNoMatchingHosts   = "No bare metal host matched the requested profile."
 	messageFailureHostAllocation    = "Host allocation failed."
 	messageFailureProvisionJob      = "OS installation and configuration did not complete; the provisioning job failed."
+	messageFailureUnsupportedImage  = "The selected disk image is not supported for this bare metal offering."
+	messageFailureUnsupportedSubnet = "The selected subnet cannot be used with this bare metal offering."
 	messageFailureNetworkAttachment = "Network attachment did not complete."
 	messageFailureNetworkHandoff    = "Network handoff (reboot) did not complete."
 	messageFailureIPDiscovery       = "IP address discovery did not complete."
@@ -794,6 +796,10 @@ func failureMessage(failure bmfov1alpha1.FailureClassification) string {
 		return messageFailureHostAllocation
 	case bmfov1alpha1.FailureProvisionJob:
 		return messageFailureProvisionJob
+	case bmfov1alpha1.FailureUnsupportedDiskImage:
+		return messageFailureUnsupportedImage
+	case bmfov1alpha1.FailureUnsupportedSubnet:
+		return messageFailureUnsupportedSubnet
 	case bmfov1alpha1.FailureNetworkAttachment:
 		return messageFailureNetworkAttachment
 	case bmfov1alpha1.FailureNetworkHandoff:
