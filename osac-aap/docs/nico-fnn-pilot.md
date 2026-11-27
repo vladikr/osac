@@ -66,7 +66,7 @@ private target and existing catalog, switches the pilot binding to the new AWX
 credential, and validates the NICo tenant IP Block. The target should show
 `id=nico-gb300-fnn-nvl72`, `status.ready=true` and
 `status.observed_ip_block_cidr=10.181.0.0/24`. The credential binding now
-selects `tenant1` and `nico-gb300-nvl72` and names the target.
+selects `tenant1` and its placement target. Confirm `spec.instance_type_mappings` contains the GB300 mapping. Older binding rows remain available for previously admitted BMIs.
 
 ## Prepare the validation network
 
@@ -98,9 +98,9 @@ selects `tenant1` and `nico-gb300-nvl72` and names the target.
 
 ## Configuration applied by the upgrade
 
-The helper configures one NICo AWX BMI credential for the OSAC tenant and instance type.
+The helper configures one NICo AWX BMI credential for the OSAC tenant and placement target.
 A new Subnet inside the validated IP Block needs no credential change.
-Preserve the NICo authentication and Instance Type settings. Use these fields in the
+The BMI supplies the pinned NICo Instance Type ID at job launch. Use these fields in the
 AWX custom credential type's environment injector and supply their values
 on the credential:
 
@@ -122,8 +122,8 @@ Keep all tokens and client secrets in AWX, never in the binding ConfigMap.
 
 The seed script registers private target `nico-gb300-fnn-nvl72` for `tenant1`, OSAC type
 `nico-gb300-nvl72`, the NICo site, and provider/network configuration references.
-The validation script checks the actual derived tenant IP Block before marking the target Ready.
-The `version: 2` binding names this target and the OSAC tenant/type, with the
+The validation script checks the derived tenant IP Block, mapped pool readiness and compute allocation before marking the target Ready.
+The `version: 2` binding names this target and the OSAC tenant, with the
 AWX Kubernetes and NICo credential IDs. Map the
 `centos-stream-10` DiskImage ID to the validated NICo Operating System
 `3403dd3c-83c3-474a-b62b-1aeaddf81ac4`. Create and dry-run reject a BMI

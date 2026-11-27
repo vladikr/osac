@@ -198,6 +198,29 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		Expect(reconcile().Status.Phase).To(Equal(v1alpha1.BareMetalInstancePhaseReady))
 	})
 
+	It("launches with the mapped pool and the site credential even with a legacy binding present", func() {
+		fresh := reconcile()
+		fresh.Annotations["osac.openshift.io/placement-target-id"] = "site-target"
+		fresh.Annotations["osac.openshift.io/placement-nico-instance-type-id"] = "chosen-pool"
+		fresh.Annotations["osac.openshift.io/placement-site-id"] = "site-a"
+		fresh.Annotations["osac.openshift.io/placement-network-config-ref"] = "network"
+		fresh.Annotations["osac.openshift.io/placement-provider-config-ref"] = "provider"
+		fresh.Annotations["osac.openshift.io/vpc-realization-id"] = "vpc"
+		fresh.Annotations["osac.openshift.io/prefix-realization-id"] = "prefix"
+		Expect(k8sClient.Update(ctx, fresh)).To(Succeed())
+		config := strings.Replace(nicoTestBindings, "operatingSystems:", `  - osacTenantID: pilot-tenant
+    placementTargetID: site-target
+    providerConfigRef: provider
+    networkConfigRef: network
+    siteID: site-a
+    credentialIDs: [43]
+operatingSystems:`, 1)
+		Expect(os.WriteFile(reconciler.NicoBindingsConfigPath, []byte(config), 0600)).To(Succeed())
+		provider.expectedCredentialIDs = []int{43}
+		reconcile()
+		Expect(provider.lastExtraVars).To(HaveKeyWithValue("nico_bmaas_instance_type_id", "chosen-pool"))
+	})
+
 	It("selects the second tenant credential without changing the BMI contract", func() {
 		// Network attachments are immutable. Create a distinct BMI for the
 		// second tenant instead of changing the first tenant's allocation.

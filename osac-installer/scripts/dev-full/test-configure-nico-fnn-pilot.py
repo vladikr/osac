@@ -27,7 +27,9 @@ class PilotBindingTests(unittest.TestCase):
             self.assertEqual(update["metadata"]["resourceVersion"], "27")
             cm["data"].update(update["data"])
             updated = yaml.safe_load(cm["data"]["bindings.yaml"])
-            binding, preserved = updated["bindings"]
+            old, preserved, binding = updated["bindings"]
+            self.assertEqual(old, legacy)
+            self.assertNotIn("osacBareMetalInstanceTypeID", binding)
             self.assertEqual(preserved, other)
             self.assertIn(other_os, updated["operatingSystems"])
             self.assertNotIn("osacSubnetID", binding)

@@ -196,13 +196,17 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
 		if !ok {
 			return ctrl.Result{}, fmt.Errorf("NICo BMI requires AAP extra vars for the one-time create authorization")
 		}
-		result, err := trigger.TriggerProvisionWithExtraVars(ctx, bmi, map[string]any{
+		vars := map[string]any{
 			"nico_bmaas_create_allowed":        true,
 			"nico_bmaas_operating_system_id":   operatingSystemID,
 			"nico_bmaas_expected_site_id":      bmi.Annotations["osac.openshift.io/placement-site-id"],
 			"nico_bmaas_vpc_realization_id":    bmi.Annotations["osac.openshift.io/vpc-realization-id"],
 			"nico_bmaas_prefix_realization_id": bmi.Annotations["osac.openshift.io/prefix-realization-id"],
-		})
+		}
+		if pool := bmi.Annotations["osac.openshift.io/placement-nico-instance-type-id"]; pool != "" {
+			vars["nico_bmaas_instance_type_id"] = pool
+		}
+		result, err := trigger.TriggerProvisionWithExtraVars(ctx, bmi, vars)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("NICo AAP launch outcome requires inspection before retry: %w", err)
 		}

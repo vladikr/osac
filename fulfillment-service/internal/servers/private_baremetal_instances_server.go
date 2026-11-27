@@ -446,7 +446,7 @@ func (s *PrivateBareMetalInstancesServer) pinNicoPlacementTarget(ctx context.Con
 	if err != nil || !requested.Addr().Is4() || requested.Masked() != requested {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "NICo bare metal requires an IPv4 Subnet")
 	}
-	filter := "this.spec.osac_instance_type_id == " + strconv.Quote(typeID)
+	filter := "this.metadata.tenant == " + strconv.Quote(candidate.GetMetadata().GetTenant())
 	result, err := s.placementTargetsDao.List().SetFilter(filter).SetLimit(1000).Do(ctx)
 	if err != nil {
 		return ConvertDAOErrorToGRPC(err, "list", "bare metal placement targets")
@@ -455,9 +455,10 @@ func (s *PrivateBareMetalInstancesServer) pinNicoPlacementTarget(ctx context.Con
 		return grpcstatus.Error(grpccodes.FailedPrecondition, "too many placement targets to select safely")
 	}
 	var selected *privatev1.BareMetalPlacementTarget
+	var providerType string
 	for _, target := range result.GetItems() {
 		if target.GetMetadata().GetDeletionTimestamp() != nil || target.GetMetadata().GetTenant() != candidate.GetMetadata().GetTenant() ||
-			target.GetSpec().GetOsacTenantId() != candidate.GetMetadata().GetTenant() || target.GetSpec().GetOsacInstanceTypeId() != typeID ||
+			target.GetSpec().GetOsacTenantId() != candidate.GetMetadata().GetTenant() ||
 			target.GetSpec().GetSiteId() == "" || target.GetSpec().GetNetworkConfigRef() == "" ||
 			!target.GetStatus().GetReady() || target.GetStatus().GetValidatedFingerprint() == "" || target.GetStatus().GetValidatedAt() == nil {
 			continue
@@ -466,10 +467,16 @@ func (s *PrivateBareMetalInstancesServer) pinNicoPlacementTarget(ctx context.Con
 		if parseErr != nil || !block.Addr().Is4() || block.Masked() != block || !block.Contains(requested.Addr()) || requested.Bits() < block.Bits() {
 			continue
 		}
-		if selected != nil {
-			return grpcstatus.Error(grpccodes.FailedPrecondition, "more than one compatible bare metal capacity target; provider placement policy is required")
+		for _, mapping := range target.GetSpec().GetInstanceTypeMappings() {
+			if mapping.GetOsacInstanceTypeId() != typeID {
+				continue
+			}
+			if selected != nil {
+				return grpcstatus.Error(grpccodes.FailedPrecondition, "more than one compatible bare metal capacity mapping")
+			}
+			selected = target
+			providerType = mapping.GetNicoInstanceTypeId()
 		}
-		selected = target
 	}
 	if selected == nil {
 		return grpcstatus.Error(grpccodes.FailedPrecondition, "this Subnet cannot be used with the selected bare metal hardware")
@@ -477,6 +484,7 @@ func (s *PrivateBareMetalInstancesServer) pinNicoPlacementTarget(ctx context.Con
 	if candidate.GetStatus() == nil {
 		candidate.SetStatus(&privatev1.BareMetalInstanceStatus{})
 	}
+	candidate.GetStatus().SetPlacementNicoInstanceTypeId(providerType)
 	candidate.GetStatus().SetPlacementTargetId(selected.GetId())
 	candidate.GetStatus().SetPlacementTargetFingerprint(selected.GetStatus().GetValidatedFingerprint())
 	candidate.GetStatus().SetPlacementSiteId(selected.GetSpec().GetSiteId())

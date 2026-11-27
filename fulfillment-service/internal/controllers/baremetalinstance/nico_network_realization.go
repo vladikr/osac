@@ -48,7 +48,8 @@ func (t *task) validatePinnedNicoTarget(ctx context.Context) error {
 	}
 	target := response.GetObject()
 	if target.GetMetadata().GetDeletionTimestamp() != nil || target.GetMetadata().GetTenant() != t.bareMetalInstance.GetMetadata().GetTenant() ||
-		!target.GetStatus().GetReady() || target.GetStatus().GetValidatedFingerprint() != status.GetPlacementTargetFingerprint() ||
+		!target.GetStatus().GetReady() || (status.GetPlacementNicoInstanceTypeId() == "" &&
+		target.GetStatus().GetValidatedFingerprint() != status.GetPlacementTargetFingerprint()) ||
 		target.GetSpec().GetSiteId() != status.GetPlacementSiteId() ||
 		target.GetSpec().GetNetworkConfigRef() != status.GetPlacementNetworkConfigRef() ||
 		target.GetSpec().GetProviderConfigRef() != status.GetPlacementProviderConfigRef() {

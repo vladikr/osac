@@ -17,7 +17,8 @@ import (
 // OSAC resource IDs, AWX credential IDs, and NICo Operating System IDs; NICo
 // credentials remain in AWX.
 //
-// A binding selects the AWX credentials for an OSAC tenant and either an OSAC
+// Mapped BMIs select AWX credentials by tenant and pinned placement target.
+// Legacy BMIs select credentials for the OSAC tenant and either an OSAC
 // BareMetalInstanceType or an OSAC Subnet. A BareMetalInstanceType binding
 // serves every Subnet of the tenant, which suits credentials that create the
 // NICo network from the Subnet. A Subnet binding pins one Subnet, for
@@ -100,12 +101,14 @@ func (r *BareMetalInstanceReconciler) loadNicoBindings() (*nicoBindingsFile, err
 		switch {
 		case binding.OSACBareMetalInstanceTypeID != "" && binding.OSACSubnetID != "":
 			return nil, fmt.Errorf("NICo tenant binding %d sets both a BareMetalInstanceType and a Subnet", i)
+		case binding.OSACBareMetalInstanceTypeID == "" && binding.OSACSubnetID == "" && isCleanID(binding.PlacementTargetID):
+			key = binding.OSACTenantID + "\x00target\x00" + binding.PlacementTargetID
 		case isCleanID(binding.OSACBareMetalInstanceTypeID):
 			key = binding.OSACTenantID + "\x00type\x00" + binding.OSACBareMetalInstanceTypeID
 		case isCleanID(binding.OSACSubnetID):
 			key = binding.OSACTenantID + "\x00subnet\x00" + binding.OSACSubnetID
 		default:
-			return nil, fmt.Errorf("NICo tenant binding %d needs a BareMetalInstanceType or a Subnet", i)
+			return nil, fmt.Errorf("NICo tenant binding %d needs a placement target, BareMetalInstanceType or Subnet", i)
 		}
 		if _, exists := seen[key]; exists {
 			return nil, fmt.Errorf("duplicate NICo tenant binding for one OSAC tenant")
@@ -161,7 +164,12 @@ func (r *BareMetalInstanceReconciler) withNicoCredentials(ctx context.Context, b
 		}
 		typeMatch := binding.OSACBareMetalInstanceTypeID != "" && binding.OSACBareMetalInstanceTypeID == instanceTypeID
 		subnetMatch := binding.OSACSubnetID != "" && binding.OSACSubnetID == subnetID
-		if !typeMatch && !subnetMatch {
+		if bmi.Annotations["osac.openshift.io/placement-nico-instance-type-id"] != "" {
+			if binding.PlacementTargetID != bmi.Annotations["osac.openshift.io/placement-target-id"] ||
+				binding.OSACBareMetalInstanceTypeID != "" || binding.OSACSubnetID != "" {
+				continue
+			}
+		} else if !typeMatch && !subnetMatch {
 			continue
 		}
 		if selected != nil {

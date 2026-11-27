@@ -213,6 +213,8 @@ message BareMetalInstanceStatus {
   string placement_site_id = 12 [(cleanapi.field).private = true];
   string placement_network_config_ref = 13 [(cleanapi.field).private = true];
   string placement_provider_config_ref = 14 [(cleanapi.field).private = true];
+  // Provider pool chosen for the resolved OSAC instance type at admission.
+  string placement_nico_instance_type_id = 15 [(cleanapi.field).private = true];
 }
 
 // Runtime networking state for a single bare metal network attachment.

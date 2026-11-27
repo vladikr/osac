@@ -18,8 +18,8 @@ import yaml
 NAMESPACE = "osac"
 DISK_IMAGE_ID = "centos-stream-10"
 OPERATING_SYSTEM_ID = "3403dd3c-83c3-474a-b62b-1aeaddf81ac4"
-CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-placement-type"
-CREDENTIAL_NAME = "nico-tenant1-fnn-placement"
+CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-site-type"
+CREDENTIAL_NAME = "nico-tenant1-fnn-site"
 AWX_PORT = "18084"
 
 
@@ -62,7 +62,6 @@ def configure_binding(credential_ids):
             raise RuntimeError("expected pilot binding version 2")
     row = {
         "osacTenantID": "tenant1",
-        "osacBareMetalInstanceTypeID": "nico-gb300-nvl72",
         "placementTargetID": "nico-gb300-fnn-nvl72",
         "providerConfigRef": "nico-gb300-pool-nvl72",
         "networkConfigRef": "nico-fnn-nvl72-site",
@@ -70,12 +69,13 @@ def configure_binding(credential_ids):
         "credentialIDs": credential_ids,
     }
     rows = document["bindings"]
+    # Keep legacy credentials addressable for BMIs admitted before pool IDs were pinned.
     matches = [i for i, item in enumerate(rows)
                if item["osacTenantID"] == row["osacTenantID"] and
-               (item.get("osacSubnetID") == "01a21a44-015e-7849-9e5a-634c000d0d48" or
-                item.get("osacBareMetalInstanceTypeID") == row["osacBareMetalInstanceTypeID"])]
+               item.get("placementTargetID") == row["placementTargetID"] and
+               not item.get("osacBareMetalInstanceTypeID") and not item.get("osacSubnetID")]
     if len(matches) > 1:
-        raise RuntimeError("ambiguous pilot binding")
+        raise RuntimeError("ambiguous pilot target binding")
     if matches:
         rows[matches[0]] = row
     else:
@@ -184,7 +184,6 @@ def main():
             "NICO_BMAAS_SITE_ID": "d88d241d-a727-49c9-9fbb-521595a4eaa5",
             "NICO_BMAAS_IP_BLOCK_ID": "1adb7f5b-8b3e-4ff3-be0d-96bd99b2dab5",
             "NICO_BMAAS_ROUTING_PROFILE": "external",
-            "NICO_BMAAS_INSTANCE_TYPE_ID": "fce88359-c3bc-48b7-8029-b0f4466a2538",
             "NICO_BMAAS_PILOT_ALLOW_UNENFORCED_SECURITY_GROUPS": "true",
             "NICO_BMAAS_TENANT_CLIENT_ID": "ncx-service",
             "NICO_BMAAS_PROVIDER_CLIENT_ID": "ncx-service",

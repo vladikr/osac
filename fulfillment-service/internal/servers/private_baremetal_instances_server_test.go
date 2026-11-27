@@ -3277,6 +3277,37 @@ var _ = Describe("Private bare metal instances server", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
+		It("migrates a legacy placement target in place and requires fresh validation after mapping edits", func() {
+			targets, err := dao.NewGenericDAO[*privatev1.BareMetalPlacementTarget]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
+			Expect(err).ToNot(HaveOccurred())
+			legacy, err := targets.Create().SetObject(&privatev1.BareMetalPlacementTarget{
+				Metadata: &privatev1.Metadata{Tenant: testTenant, Name: "pilot-target"},
+				Spec: &privatev1.BareMetalPlacementTargetSpec{OsacTenantId: testTenant, OsacInstanceTypeId: "gb300",
+					SiteId: "site-a", ProviderConfigRef: "capacity-a", NetworkConfigRef: "network-a"},
+				Status: &privatev1.BareMetalPlacementTargetStatus{Ready: true, ValidatedFingerprint: "legacy"},
+			}).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			service, err := NewPrivateBareMetalPlacementTargetsServer(logger, attribution, tenancy, nil)
+			Expect(err).ToNot(HaveOccurred())
+			object := legacy.GetObject()
+			object.Spec.SetOsacInstanceTypeId("")
+			mapping := &privatev1.BareMetalPlacementInstanceTypeMapping{
+				OsacInstanceTypeId: "gb300", NicoInstanceTypeId: "fce88359-c3bc-48b7-8029-b0f4466a2538",
+			}
+			object.Spec.SetInstanceTypeMappings([]*privatev1.BareMetalPlacementInstanceTypeMapping{mapping, mapping})
+			request := privatev1.BareMetalPlacementTargetsUpdateRequest_builder{
+				Object: object, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec"}}, Lock: true,
+			}.Build()
+			_, err = service.Update(ctx, request)
+			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.InvalidArgument))
+			object.Spec.SetInstanceTypeMappings([]*privatev1.BareMetalPlacementInstanceTypeMapping{mapping})
+			result, err := service.Update(ctx, request)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.GetObject().GetStatus().GetReady()).To(BeFalse())
+			Expect(result.GetObject().GetSpec().GetInstanceTypeMappings()).To(HaveLen(1))
+			Expect(result.GetObject().GetId()).To(Equal(object.GetId()))
+		})
+
 		It("allows the NICo template to own fabric programming for a resolved tenant subnet", func() {
 			subnetID, sgID := createSubnet(nil, new("cudn_localnet"))
 			targetsDao, err := dao.NewGenericDAO[*privatev1.BareMetalPlacementTarget]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
@@ -3284,7 +3315,11 @@ var _ = Describe("Private bare metal instances server", func() {
 			target, err := targetsDao.Create().SetObject(&privatev1.BareMetalPlacementTarget{
 				Metadata: &privatev1.Metadata{Tenant: testTenant, Name: "nico-gb300-site-a"},
 				Spec: &privatev1.BareMetalPlacementTargetSpec{
-					OsacTenantId: testTenant, OsacInstanceTypeId: "default-type", SiteId: "site-a",
+					OsacTenantId: testTenant, SiteId: "site-a",
+					InstanceTypeMappings: []*privatev1.BareMetalPlacementInstanceTypeMapping{
+						{OsacInstanceTypeId: "other-type", NicoInstanceTypeId: "4fe88359-c3bc-48b7-8029-b0f4466a2538"},
+						{OsacInstanceTypeId: "default-type", NicoInstanceTypeId: "fce88359-c3bc-48b7-8029-b0f4466a2538"},
+					},
 					ProviderConfigRef: "nico-pool-a", NetworkConfigRef: "nico-fnn-site-a",
 				},
 				Status: &privatev1.BareMetalPlacementTargetStatus{
@@ -3326,6 +3361,7 @@ var _ = Describe("Private bare metal instances server", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created.GetObject().GetStatus().GetPlacementTargetId()).To(Equal(target.GetObject().GetId()))
 			Expect(created.GetObject().GetStatus().GetPlacementSiteId()).To(Equal("site-a"))
+			Expect(created.GetObject().GetStatus().GetPlacementNicoInstanceTypeId()).To(Equal("fce88359-c3bc-48b7-8029-b0f4466a2538"))
 			targetServer, err := NewPrivateBareMetalPlacementTargetsServer(logger, attribution, tenancy, nil)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = targetServer.Delete(ctx, privatev1.BareMetalPlacementTargetsDeleteRequest_builder{Id: target.GetObject().GetId()}.Build())

@@ -110,7 +110,9 @@ cat > "${temporary_dir}/placement-target.json" <<'JSON'
   "metadata": {"name": "nico-gb300-fnn-nvl72", "tenant": "tenant1"},
   "spec": {
     "osac_tenant_id": "tenant1",
-    "osac_instance_type_id": "nico-gb300-nvl72",
+    "instance_type_mappings": [
+      {"osac_instance_type_id": "nico-gb300-nvl72", "nico_instance_type_id": "fce88359-c3bc-48b7-8029-b0f4466a2538"}
+    ],
     "site_id": "d88d241d-a727-49c9-9fbb-521595a4eaa5",
     "provider_config_ref": "nico-gb300-pool-nvl72",
     "network_config_ref": "nico-fnn-nvl72-site"
@@ -150,7 +152,25 @@ ensure_resource() {
     --write-out '%{http_code}' "${api}/${resource}/${id}")"
   case "${code}" in
     200)
-      if [[ "${kind}" == type || "${kind}" == target ]]; then
+      if [[ "${kind}" == target ]]; then
+        jq -e --slurpfile expected "${payload}" '
+          .metadata.tenant == $expected[0].metadata.tenant and .id == $expected[0].id and
+          (.spec | del(.osac_instance_type_id, .instance_type_mappings)) ==
+          ($expected[0].spec | del(.instance_type_mappings))' "${temporary_dir}/response.json" >/dev/null ||
+          fail "existing target differs from the pilot tenant, site or configuration"
+        if jq -e '.spec.osac_instance_type_id == "nico-gb300-nvl72" and
+          (.spec.instance_type_mappings | length == 0)' "${temporary_dir}/response.json" >/dev/null; then
+          jq --slurpfile expected "${payload}" '.spec = $expected[0].spec' \
+            "${temporary_dir}/response.json" > "${temporary_dir}/migrated-target.json"
+          curl "${curl_args[@]}" --fail -X PATCH --header 'Content-Type: application/json' \
+            --data-binary "@${temporary_dir}/migrated-target.json" --output /dev/null \
+            "${api}/${resource}/${id}?update_mask=spec&lock=true"
+          echo "${resource}/${id}: migrated existing placement target"
+          return
+        fi
+        jq -e '.spec.instance_type_mappings | length > 0' "${temporary_dir}/response.json" >/dev/null ||
+          fail "existing target has no recognized type mappings"
+      elif [[ "${kind}" == type ]]; then
         jq -e --slurpfile expected "${payload}" \
           '.id == $expected[0].metadata.name and .metadata.name == $expected[0].metadata.name and .spec == $expected[0].spec' \
           "${temporary_dir}/response.json" >/dev/null || fail "existing ${resource}/${id} differs from pilot specification"

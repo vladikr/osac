@@ -23,7 +23,7 @@ import "osac/private/v1/metadata_type.proto";
 
 option (cleanapi.file).private = true;
 
-// Registers one provider-owned source of bare-metal capacity for an OSAC tenant and instance type.
+// Registers one provider-owned source of bare-metal capacity for an OSAC tenant at a site.
 // Placement selects this target before any external writes and records its identity on the BMI.
 // It does not identify a physical host or replace BareMetalPool.
 message BareMetalPlacementTarget {
@@ -36,14 +36,21 @@ message BareMetalPlacementTarget {
 message BareMetalPlacementTargetSpec {
   // OSAC tenant that may use this target. Must equal metadata.tenant.
   string osac_tenant_id = 1 [(buf.validate.field).string.min_len = 1];
-  // OSAC hardware type exposed by catalog policy.
-  string osac_instance_type_id = 2 [(buf.validate.field).string.min_len = 1];
+  // Retained for reading registrations created before instance_type_mappings.
+  string osac_instance_type_id = 2 [deprecated = true];
   // Provider site, known before NICo network realization. May be empty for legacy inventory targets.
   string site_id = 3;
   // Stable provider-private capacity configuration reference; never a credential or secret value.
   string provider_config_ref = 4 [(buf.validate.field).string.min_len = 1];
   // Stable provider-private network configuration reference. Empty for ordinary inventory targets.
   string network_config_ref = 5;
+  // Operator-approved OSAC offerings and their provider pool at this target.
+  repeated BareMetalPlacementInstanceTypeMapping instance_type_mappings = 6;
+}
+
+message BareMetalPlacementInstanceTypeMapping {
+  string osac_instance_type_id = 1 [(buf.validate.field).string.min_len = 1];
+  string nico_instance_type_id = 2 [(buf.validate.field).string.uuid = true];
 }
 
 message BareMetalPlacementTargetStatus {

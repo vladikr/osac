@@ -69,7 +69,7 @@ if [[ "${1:-}" == --show ]]; then
     [[ "${bmi_id}" =~ ^[[:xdigit:]-]+$ ]] || fail "expected an OSAC BMI ID"
     private_api="${api%/bare_metal_placement_targets/*}"
     curl "${curl_args[@]}" "${private_api}/baremetal_instances/${bmi_id}" |
-      jq '{kind:"BareMetalInstance",id,state:.status.state,target:.status.placement_target_id}'
+      jq '{kind:"BareMetalInstance",id,state:.status.state,target:.status.placement_target_id,nico_instance_type_id:.status.placement_nico_instance_type_id}'
     kubectl -n "${namespace}" get baremetalinstance "bmi-${bmi_id}" -o json > "${tmp_dir}/bmi.json"
     for network in vpc prefix; do
       realization="$(jq -er --arg key "osac.openshift.io/${network}-realization-id" \
@@ -91,6 +91,12 @@ curl -fsS --cacert "${pilot_dir}/ca-bundle.crt" --output "${tmp_dir}/nico-token.
   --data-urlencode "client_secret@${tmp_dir}/nico-secret" \
   'https://keycloak-rhbk-operator.apps.nico-hub.nvidialaunchpad.internal/realms/nico/protocol/openid-connect/token'
 nico_token="$(jq -er '.access_token' "${tmp_dir}/nico-token.json")"
+reject_target() {
+  jq --arg reason "$1" '.status = {ready:false,message:$reason}' "${tmp_dir}/target.json" > "${tmp_dir}/invalid.json"
+  curl "${curl_args[@]}" -X PATCH -H 'Content-Type: application/json' \
+    --data-binary "@${tmp_dir}/invalid.json" --output /dev/null "${api}?update_mask=status&lock=true"
+  fail "$1"
+}
 curl -fsS --cacert "${pilot_dir}/ca-bundle.crt" \
   -H "Authorization: Bearer ${nico_token}" \
   --output "${tmp_dir}/ip-block.json" \
@@ -98,15 +104,40 @@ curl -fsS --cacert "${pilot_dir}/ca-bundle.crt" \
 jq -e --arg id "${block_id}" --arg tenant "${tenant_id}" --arg site "${site_id}" \
   '.id == $id and .status == "Ready" and .tenantId == $tenant and .siteId == $site and
    (.prefix | type == "string") and (.prefixLength | type == "number")' \
-  "${tmp_dir}/ip-block.json" >/dev/null || fail "NICo IP Block differs from the configured tenant or site"
+  "${tmp_dir}/ip-block.json" >/dev/null || reject_target "NICo IP Block differs from the configured tenant or site"
 cidr="$(jq -er '"\(.prefix)/\(.prefixLength)"' "${tmp_dir}/ip-block.json")"
 
 jq -e --arg site "${site_id}" \
   '.spec.site_id == $site and .spec.osac_tenant_id == "tenant1" and
-   .spec.osac_instance_type_id == "nico-gb300-nvl72" and
+   (.spec.instance_type_mappings | length > 0) and
    .spec.provider_config_ref == "nico-gb300-pool-nvl72" and
    .spec.network_config_ref == "nico-fnn-nvl72-site"' "${tmp_dir}/target.json" >/dev/null ||
   fail "placement target specification differs from the configured pilot"
+# An org can act as both provider and tenant. A visible type alone does not establish entitlement.
+nico_api="https://nico-rest-api-nico-rest.apps.nico-hub.nvidialaunchpad.internal/v2/org/ncx/nico"
+nico_get=(curl -fsS --cacert "${pilot_dir}/ca-bundle.crt" -H "Authorization: Bearer ${nico_token}")
+private_api="${api%/bare_metal_placement_targets/*}"
+jq -r '.spec.instance_type_mappings[].osac_instance_type_id | @uri' "${tmp_dir}/target.json" > "${tmp_dir}/offerings"
+while IFS= read -r offering; do
+  curl "${curl_args[@]}" --output "${tmp_dir}/offering.json" "${private_api}/bare_metal_instance_types/${offering}"
+  jq -e '.metadata.deletion_timestamp == null and (.metadata.tenant == "tenant1" or .metadata.tenant == "shared")' \
+    "${tmp_dir}/offering.json" >/dev/null || reject_target "OSAC instance type ${offering} is unavailable to tenant1"
+done < "${tmp_dir}/offerings"
+jq -r '.spec.instance_type_mappings[].nico_instance_type_id' "${tmp_dir}/target.json" | sort -u > "${tmp_dir}/pools"
+while IFS= read -r pool; do
+  "${nico_get[@]}" --output "${tmp_dir}/allocations.json" --get "${nico_api}/allocation" \
+    --data-urlencode "siteId=${site_id}" --data-urlencode "tenantId=${tenant_id}" \
+    --data-urlencode "resourceType=InstanceType" --data-urlencode "resourceTypeId=${pool}" \
+    --data-urlencode "status=Registered" --data-urlencode "pageSize=100"
+  jq -e --arg site "${site_id}" --arg tenant "${tenant_id}" --arg pool "${pool}" '
+    any(.[]; .siteId == $site and .tenantId == $tenant and .status == "Registered" and
+      any(.allocationConstraints[]?; .resourceType == "InstanceType" and .resourceTypeId == $pool))' \
+    "${tmp_dir}/allocations.json" >/dev/null || reject_target "no registered tenant allocation for NICo type ${pool}"
+  "${nico_get[@]}" --output "${tmp_dir}/pool.json" "${nico_api}/instance/type/${pool}"
+  jq -e --arg site "${site_id}" --arg pool "${pool}" \
+    '.id == $pool and .siteId == $site and .status == "Ready"' "${tmp_dir}/pool.json" >/dev/null ||
+    reject_target "NICo type ${pool} is not Ready at the configured site"
+done < "${tmp_dir}/pools"
 fingerprint="$(jq -cn --slurpfile target "${tmp_dir}/target.json" --slurpfile block "${tmp_dir}/ip-block.json" \
   '{target:$target[0].spec,block:{id:$block[0].id,prefix:$block[0].prefix,prefixLength:$block[0].prefixLength,siteId:$block[0].siteId,tenantId:$block[0].tenantId}}' |
   sha256sum | cut -d' ' -f1)"

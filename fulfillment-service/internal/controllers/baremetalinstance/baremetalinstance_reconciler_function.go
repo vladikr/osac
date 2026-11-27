@@ -849,6 +849,9 @@ func (t *task) mutateBMI(ctx context.Context, object *bmfov1alpha1.BareMetalInst
 	object.Annotations[annotations.Tenant] = t.bareMetalInstance.GetMetadata().GetTenant()
 	if targetID := t.bareMetalInstance.GetStatus().GetPlacementTargetId(); targetID != "" {
 		object.Annotations["osac.openshift.io/placement-target-id"] = targetID
+		if pool := t.bareMetalInstance.GetStatus().GetPlacementNicoInstanceTypeId(); pool != "" {
+			object.Annotations["osac.openshift.io/placement-nico-instance-type-id"] = pool
+		}
 		object.Annotations["osac.openshift.io/placement-target-fingerprint"] = t.bareMetalInstance.GetStatus().GetPlacementTargetFingerprint()
 		object.Annotations["osac.openshift.io/placement-site-id"] = t.bareMetalInstance.GetStatus().GetPlacementSiteId()
 		object.Annotations["osac.openshift.io/placement-network-config-ref"] = t.bareMetalInstance.GetStatus().GetPlacementNetworkConfigRef()

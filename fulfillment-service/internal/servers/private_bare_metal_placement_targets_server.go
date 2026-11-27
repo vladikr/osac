@@ -67,12 +67,30 @@ func (s *PrivateBareMetalPlacementTargetsServer) Get(ctx context.Context,
 	return
 }
 
+// Validate the approved offering-to-pool choices before they can participate in placement.
+func validatePlacementMappings(spec *privatev1.BareMetalPlacementTargetSpec) error {
+	if spec.GetOsacInstanceTypeId() != "" || len(spec.GetInstanceTypeMappings()) == 0 {
+		return status.Error(codes.InvalidArgument, "configure instance_type_mappings for this target")
+	}
+	seen := make(map[string]bool)
+	for _, m := range spec.GetInstanceTypeMappings() {
+		if seen[m.GetOsacInstanceTypeId()] {
+			return status.Error(codes.InvalidArgument, "each OSAC instance type must map to one pool per target")
+		}
+		seen[m.GetOsacInstanceTypeId()] = true
+	}
+	return nil
+}
+
 func (s *PrivateBareMetalPlacementTargetsServer) Create(ctx context.Context,
 	request *privatev1.BareMetalPlacementTargetsCreateRequest) (response *privatev1.BareMetalPlacementTargetsCreateResponse, err error) {
 	err = s.generic.CreateWithCandidatePreparation(ctx, request, &response,
 		func(_ context.Context, _ *privatev1.BareMetalPlacementTarget, candidate *privatev1.BareMetalPlacementTarget) error {
 			if candidate.GetSpec() == nil || candidate.GetMetadata().GetTenant() != candidate.GetSpec().GetOsacTenantId() {
 				return status.Error(codes.InvalidArgument, "placement target tenant must match metadata.tenant")
+			}
+			if err := validatePlacementMappings(candidate.GetSpec()); err != nil {
+				return err
 			}
 			candidate.SetStatus(&privatev1.BareMetalPlacementTargetStatus{})
 			return nil
@@ -84,9 +102,19 @@ func (s *PrivateBareMetalPlacementTargetsServer) Update(ctx context.Context,
 	request *privatev1.BareMetalPlacementTargetsUpdateRequest) (response *privatev1.BareMetalPlacementTargetsUpdateResponse, err error) {
 	err = s.generic.UpdateWithValidation(ctx, request, &response,
 		func(_ context.Context, candidate, current *privatev1.BareMetalPlacementTarget) error {
-			if !proto.Equal(candidate.GetSpec(), current.GetSpec()) {
-				return status.Error(codes.FailedPrecondition, "placement target spec is immutable; register a new target")
+			if proto.Equal(candidate.GetSpec(), current.GetSpec()) {
+				return nil
 			}
+			if err := validatePlacementMappings(candidate.GetSpec()); err != nil {
+				return err
+			}
+			updated := proto.Clone(current.GetSpec()).(*privatev1.BareMetalPlacementTargetSpec)
+			updated.SetOsacInstanceTypeId("")
+			updated.SetInstanceTypeMappings(candidate.GetSpec().GetInstanceTypeMappings())
+			if !proto.Equal(candidate.GetSpec(), updated) {
+				return status.Error(codes.FailedPrecondition, "target tenant, site and configuration references are immutable")
+			}
+			candidate.SetStatus(&privatev1.BareMetalPlacementTargetStatus{})
 			return nil
 		})
 	return
