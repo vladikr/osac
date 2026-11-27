@@ -96,9 +96,18 @@ properties for the real GB300 trays.
 
 5. Add a `version: 2` entry for the new OSAC tenant/Subnet to the existing
    `osac-nico-tenant-bindings` ConfigMap. Its `credentialIDs` must include the
-   AWX Kubernetes credential and this new NICo credential. Keep the existing
-   `operatingSystems` DiskImage mapping. The operator selects the credential
-   from this exact tenant/Subnet binding.
+   AWX Kubernetes credential and this new NICo credential. Map the
+   `centos-stream-10` DiskImage ID to the validated NICo Operating System
+   `3403dd3c-83c3-474a-b62b-1aeaddf81ac4`. The operator selects the
+   credential from this exact tenant/Subnet binding. The pilot catalog seed
+   script registers the same tenant-scoped DiskImage record used in the
+   original Launchpad pilot.
+
+   The DiskImage record points to the pinned CentOS Stream 10 aarch64 QCOW2
+   at `http://172.16.2.122/osac/CentOS-Stream-GenericCloud-10-20261103.0.aarch64.qcow2`,
+   matching the NICo Operating System's `image_url`. Its `source_type` is
+   `SOURCE_TYPE_REGISTRY` because that is the only type the current OSAC API
+   supports; this is a pilot representation gap, not an OCI installation.
 
 6. On the Launchpad pilot VM, deploy this branch from the contributor fork:
 
@@ -118,7 +127,7 @@ properties for the real GB300 trays.
 
 ## Test and observe
 
-Create a BMI with the existing NICo catalog item, approved DiskImage, and new
+Create a BMI with the seeded NICo catalog item, approved DiskImage, and new
 Subnet/SG IDs. Use the same SSH key and instance type as the proven BMI pilot:
 
 ```bash
@@ -126,9 +135,9 @@ pilot_key='/path/to/public-key.pub'
 subnet_id='<new-subnet-id>'
 sg_id='<new-sg-id>'
 osac create baremetalinstance \
-  --catalog-item 01a1a958-dfec-78ed-a241-d2df4a4530ee \
+  --catalog-item 01a21a54-a3eb-717b-8b42-7f52dc339330 \
   --name nico-fnn-test --instance-type nico-gb300-nvl72 \
-  --disk-image fedora --ssh-key "$(cat "$pilot_key")" \
+  --disk-image centos-stream-10 --ssh-key "$(cat "$pilot_key")" \
   --network-attachment \
   "subnet=$subnet_id,interface=data-0,primary,security-groups=$sg_id"
 osac get baremetalinstances nico-fnn-test

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Register the NICo GB300 hardware type, BMI template, and tenant1 pilot catalog item.
+# Register the NICo GB300 type, template, tenant1 image, and pilot catalog item.
 # Credentials come from the deployed Fulfillment Secret and never enter the source tree.
 set -euo pipefail
 set +x
@@ -114,6 +114,22 @@ cat > "${temporary_dir}/catalog.json" <<'JSON'
 }
 JSON
 
+# Replicate the validated CentOS pilot image record. The current DiskImage API
+# has only SOURCE_TYPE_REGISTRY, even though this NICo qcow-image source is HTTP.
+cat > "${temporary_dir}/image.json" <<'JSON'
+{
+  "id": "centos-stream-10",
+  "metadata": {"name": "centos-stream-10", "tenant": "tenant1"},
+  "spec": {
+    "source_type": "SOURCE_TYPE_REGISTRY",
+    "source_ref": "http://172.16.2.122/osac/CentOS-Stream-GenericCloud-10-20261103.0.aarch64.qcow2",
+    "guest_os_family": "GUEST_OS_FAMILY_LINUX",
+    "architecture": ["ARCHITECTURE_ARM64"],
+    "lifecycle": "DISK_IMAGE_LIFECYCLE_AVAILABLE"
+  }
+}
+JSON
+
 ensure_resource() {
   local resource="$1" id="$2" payload="$3" kind="$4" code
   code="$(curl "${curl_args[@]}" --output "${temporary_dir}/response.json" \
@@ -124,6 +140,10 @@ ensure_resource() {
         jq -e --slurpfile expected "${payload}" \
           '.id == $expected[0].metadata.name and .metadata.name == $expected[0].metadata.name and .spec == $expected[0].spec' \
           "${temporary_dir}/response.json" >/dev/null || fail "existing ${resource}/${id} differs from pilot specification"
+      elif [[ "${kind}" == image ]]; then
+        jq -e --slurpfile expected "${payload}" \
+          '.id == $expected[0].id and .metadata.name == $expected[0].metadata.name and .metadata.tenant == $expected[0].metadata.tenant and .spec == $expected[0].spec' \
+          "${temporary_dir}/response.json" >/dev/null || fail "existing ${resource}/${id} differs from pilot image"
       else
         jq -e --slurpfile expected "${payload}" \
           '.id == $expected[0].id and .metadata.name == $expected[0].metadata.name and .title == $expected[0].title' \
@@ -152,6 +172,7 @@ ensure_resource() {
 
 ensure_resource bare_metal_instance_types nico-gb300-nvl72 "${temporary_dir}/type.json" type
 ensure_resource baremetal_instance_templates osac.templates.nico_bm_host_provisioning "${temporary_dir}/template.json" template
+ensure_resource disk_images centos-stream-10 "${temporary_dir}/image.json" image
 
 curl "${curl_args[@]}" --fail --output "${temporary_dir}/catalog-list.json" \
   "${api}/baremetal_instance_catalog_items"
