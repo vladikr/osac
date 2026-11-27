@@ -10,6 +10,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -216,19 +217,33 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		Expect(provider.launches).To(Equal(1))
 	})
 
-	It("refuses a tenant and Subnet combination with no binding before creating", func() {
+	It("refuses a tenant and Subnet combination with no binding before creating, and stays failed", func() {
 		bmi.Annotations["osac.openshift.io/tenant"] = "other-tenant"
 		Expect(k8sClient.Update(ctx, bmi)).To(Succeed())
 		reconcile() // finalizer is installed before any external create
-		_, err := reconciler.Reconcile(ctx, req)
-		Expect(err).To(MatchError(ContainSubstring("no NICo tenant binding")))
-		fresh := &v1alpha1.BareMetalInstance{}
-		Expect(k8sClient.Get(ctx, req.NamespacedName, fresh)).To(Succeed())
+		fresh := reconcile()
+		Expect(fresh.Status.Phase).To(Equal(v1alpha1.BareMetalInstancePhaseFailed))
 		Expect(fresh.Status.NicoCreateAttempted).To(BeFalse())
 		condition := fresh.GetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete)
 		Expect(condition).NotTo(BeNil())
 		Expect(condition.Reason).To(Equal(v1alpha1.HostConditionReasonUnsupportedSubnet))
+		Expect(condition.Message).To(ContainSubstring("no NICo tenant binding"))
+		Expect(v1alpha1.DeriveProvisioningProgress(fresh.Status.Conditions).Failure).To(Equal(v1alpha1.FailureUnsupportedSubnet))
+
+		// A binding added later does not provision the failed BMI on its own.
+		config := strings.Replace(nicoTestBindings, "operatingSystems:",
+			"  - osacTenantID: other-tenant\n    osacSubnetID: osac-pilot-subnet\n    credentialIDs: [44]\noperatingSystems:", 1)
+		Expect(os.WriteFile(reconciler.NicoBindingsConfigPath, []byte(config), 0600)).To(Succeed())
+		fresh = reconcile()
+		Expect(fresh.Status.Phase).To(Equal(v1alpha1.BareMetalInstancePhaseFailed))
+		Expect(fresh.Status.NicoCreateAttempted).To(BeFalse())
 		Expect(provider.launches).To(BeZero())
+
+		// It is deleted without any NICo call.
+		Expect(k8sClient.Delete(ctx, fresh)).To(Succeed())
+		_, err := reconciler.Reconcile(ctx, req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, req.NamespacedName, fresh))).To(BeTrue())
 	})
 
 	Context("with a BareMetalInstanceType binding", func() {

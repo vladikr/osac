@@ -230,10 +230,14 @@ also reported IDs, which are always saved and released.
 
 The operator selects the binding that matches the tenant annotation and either
 the BMI BareMetalInstanceType or its Subnet before a NICo create or delete
-launch. No match, or more than one, blocks the launch. The selected AWX
-credential must inject the matching `NICO_BMAAS_OSAC_TENANT_ID` along with NICo
-tenant, network, and scoped authentication values. A Subnet credential also
-injects `NICO_BMAAS_OSAC_SUBNET_ID`; the role validates the OSAC IDs again
+launch. More than one match blocks the launch. A BMI with no matching binding
+fails with `ProvisionTemplateComplete=False`, reason `UnsupportedSubnet`,
+before any NICo call. Like `UnsupportedDiskImage`, that rejection is terminal:
+after the binding is added, the tenant recreates the BMI. A missing or invalid
+bindings file is a configuration error instead and is retried. The selected
+AWX credential must inject the matching `NICO_BMAAS_OSAC_TENANT_ID` along with
+NICo tenant, network, and scoped authentication values. A Subnet credential
+also injects `NICO_BMAAS_OSAC_SUBNET_ID`; the role validates the OSAC IDs again
 before a NICo REST call. `credentialIDs` is the complete
 credential set for the job because AWX launch-time credentials override the
 job template's defaults. The create/delete bare-metal job templates must have
