@@ -229,6 +229,10 @@ const (
 	// HostConditionReasonUnsupportedDiskImage indicates the requested DiskImage has no
 	// approved provider operating system, so provisioning was not attempted.
 	HostConditionReasonUnsupportedDiskImage = "UnsupportedDiskImage"
+
+	// HostConditionReasonUnsupportedSubnet indicates the requested Subnet has no
+	// approved provider binding for the tenant, so provisioning was not attempted.
+	HostConditionReasonUnsupportedSubnet = "UnsupportedSubnet"
 )
 
 // HostSelectorSpec defines host selection constraints.

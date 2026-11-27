@@ -49,6 +49,10 @@ const diskImageIDAnnotation = "osac.openshift.io/disk-image-id"
 // Operating System. It is terminal for the create attempt: no NICo call is made.
 var errNicoDiskImageUnsupported = errors.New("DiskImage has no approved NICo Operating System")
 
+// errNicoSubnetUnbound marks a BMI whose tenant and Subnet have no binding. No
+// NICo call is made; a later reconcile proceeds once an administrator adds it.
+var errNicoSubnetUnbound = errors.New("no NICo tenant binding for BMI tenant and Subnet")
+
 func isCleanID(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value
 }
@@ -128,7 +132,7 @@ func (r *BareMetalInstanceReconciler) withNicoCredentials(ctx context.Context, b
 			return provisioning.WithAAPCredentialIDs(ctx, binding.CredentialIDs), config, nil
 		}
 	}
-	return nil, nil, fmt.Errorf("no NICo tenant binding for BMI tenant and Subnet")
+	return nil, nil, errNicoSubnetUnbound
 }
 
 // nicoOperatingSystemFor returns the NICo Operating System approved for the

@@ -224,6 +224,9 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		fresh := &v1alpha1.BareMetalInstance{}
 		Expect(k8sClient.Get(ctx, req.NamespacedName, fresh)).To(Succeed())
 		Expect(fresh.Status.NicoCreateAttempted).To(BeFalse())
+		condition := fresh.GetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete)
+		Expect(condition).NotTo(BeNil())
+		Expect(condition.Reason).To(Equal(v1alpha1.HostConditionReasonUnsupportedSubnet))
 		Expect(provider.launches).To(BeZero())
 	})
 
@@ -273,6 +276,7 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
 			Expect(condition.Reason).To(Equal(v1alpha1.HostConditionReasonUnsupportedDiskImage))
 			Expect(v1alpha1.DeriveProvisioningProgress(fresh.Status.Conditions).State).To(Equal(v1alpha1.StateFailed))
+			Expect(v1alpha1.DeriveProvisioningProgress(fresh.Status.Conditions).Failure).To(Equal(v1alpha1.FailureUnsupportedDiskImage))
 
 			// Nothing was created in NICo, so delete needs no provider cleanup.
 			Expect(k8sClient.Delete(ctx, fresh)).To(Succeed())
