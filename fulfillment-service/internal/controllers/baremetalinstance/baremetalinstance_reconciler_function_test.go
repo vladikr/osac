@@ -1006,6 +1006,7 @@ var _ = Describe("mutateBMI", func() {
 		Expect(obj.Spec.Selector.HostSelector).To(HaveLen(2))
 		Expect(obj.Spec.Selector.HostSelector["accelerator"]).To(Equal("gpu"))
 		Expect(obj.Spec.Selector.HostSelector["size"]).To(Equal("large"))
+		Expect(obj.Annotations[annotations.BareMetalInstanceType]).To(Equal("gpu-large"))
 	})
 
 	It("should return error when instance_type has empty host_label_selector", func() {
@@ -2670,6 +2671,10 @@ var _ = Describe("syncStatus", func() {
 			[]metav1.Condition{{Type: string(bmfov1alpha1.HostConditionProvisionTemplateComplete), Status: metav1.ConditionFalse, Reason: bmfov1alpha1.HostConditionReasonUnsupportedSubnet}},
 			privatev1.BareMetalInstanceConditionType_BARE_METAL_INSTANCE_CONDITION_TYPE_PROVISIONED,
 			string(bmfov1alpha1.FailureUnsupportedSubnet), "The selected subnet cannot be used with this bare metal offering."),
+		Entry("UnsupportedInstanceType → PROVISIONED",
+			[]metav1.Condition{{Type: string(bmfov1alpha1.HostConditionProvisionTemplateComplete), Status: metav1.ConditionFalse, Reason: bmfov1alpha1.HostConditionReasonUnsupportedInstanceType}},
+			privatev1.BareMetalInstanceConditionType_BARE_METAL_INSTANCE_CONDITION_TYPE_PROVISIONED,
+			string(bmfov1alpha1.FailureUnsupportedInstanceType), "No bare-metal capacity is configured for this hardware type and tenant."),
 		Entry("NetworkAttachmentFailed → PROVISIONED",
 			[]metav1.Condition{{Type: string(bmfov1alpha1.HostConditionNetworkAttachmentsReady), Status: metav1.ConditionFalse, Reason: "AttachmentFailed"}},
 			privatev1.BareMetalInstanceConditionType_BARE_METAL_INSTANCE_CONDITION_TYPE_PROVISIONED,
@@ -2852,6 +2857,7 @@ var _ = Describe("failureMessage", func() {
 		Entry("ProvisionJobFailed", bmfov1alpha1.FailureProvisionJob, "OS installation and configuration did not complete; the provisioning job failed."),
 		Entry("UnsupportedDiskImage", bmfov1alpha1.FailureUnsupportedDiskImage, "The selected disk image is not supported for this bare metal offering."),
 		Entry("UnsupportedSubnet", bmfov1alpha1.FailureUnsupportedSubnet, "The selected subnet cannot be used with this bare metal offering."),
+		Entry("UnsupportedInstanceType", bmfov1alpha1.FailureUnsupportedInstanceType, "No bare-metal capacity is configured for this hardware type and tenant."),
 		Entry("NetworkAttachmentFailed", bmfov1alpha1.FailureNetworkAttachment, "Network attachment did not complete."),
 		Entry("NetworkHandoffFailed", bmfov1alpha1.FailureNetworkHandoff, "Network handoff (reboot) did not complete."),
 		Entry("IPDiscoveryFailed", bmfov1alpha1.FailureIPDiscovery, "IP address discovery did not complete."),

@@ -17,8 +17,8 @@ NAMESPACE = "osac"
 SUBNET_ID = "01a21a44-015e-7849-9e5a-634c000d0d48"
 DISK_IMAGE_ID = "centos-stream-10"
 OPERATING_SYSTEM_ID = "3403dd3c-83c3-474a-b62b-1aeaddf81ac4"
-CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-pilot-type"
-CREDENTIAL_NAME = "nico-tenant1-fnn-pilot"
+CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-pilot-type-v3"
+CREDENTIAL_NAME = "nico-tenant1-fnn-pilot-v3"
 AWX_PORT = "18084"
 
 
@@ -128,7 +128,6 @@ def main():
             "NICO_BMAAS_PROVIDER_ORG": "ncx",
             "NICO_BMAAS_TENANT_ID": "284a8abb-f12f-45b8-b124-4207c35cefb8",
             "NICO_BMAAS_OSAC_TENANT_ID": "tenant1",
-            "NICO_BMAAS_OSAC_SUBNET_ID": SUBNET_ID,
             "NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE": "FNN",
             "NICO_BMAAS_FNN_AUTO_CREATE": "true",
             "NICO_BMAAS_SITE_ID": "d88d241d-a727-49c9-9fbb-521595a4eaa5",
@@ -175,10 +174,10 @@ def main():
             credential = awx("POST", "/credentials/", credential_body)
 
         binding = (
-            "version: 2\n"
+            "version: 3\n"
             "bindings:\n"
             "  - osacTenantID: tenant1\n"
-            f"    osacSubnetID: {SUBNET_ID}\n"
+            "    osacInstanceTypeID: nico-gb300-nvl72\n"
             f"    credentialIDs: [{kube_credential['id']}, {credential['id']}]\n"
             "operatingSystems:\n"
             f"  - diskImageID: {DISK_IMAGE_ID}\n"

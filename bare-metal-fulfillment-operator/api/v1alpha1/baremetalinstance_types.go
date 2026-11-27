@@ -233,6 +233,9 @@ const (
 	// HostConditionReasonUnsupportedSubnet indicates the requested Subnet has no
 	// approved provider binding for the tenant, so provisioning was not attempted.
 	HostConditionReasonUnsupportedSubnet = "UnsupportedSubnet"
+	// HostConditionReasonUnsupportedInstanceType indicates that this tenant has
+	// no approved NICo capacity binding for the requested hardware type.
+	HostConditionReasonUnsupportedInstanceType = "UnsupportedInstanceType"
 )
 
 // HostSelectorSpec defines host selection constraints.

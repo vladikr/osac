@@ -66,15 +66,16 @@ const (
 	messageStepReadyPowerSync          = "Power synchronization is in progress."
 
 	// Curated failure messages — exact strings, one per FailureClassification.
-	messageFailureNoMatchingHosts   = "No bare metal host matched the requested profile."
-	messageFailureHostAllocation    = "Host allocation failed."
-	messageFailureProvisionJob      = "OS installation and configuration did not complete; the provisioning job failed."
-	messageFailureUnsupportedImage  = "The selected disk image is not supported for this bare metal offering."
-	messageFailureUnsupportedSubnet = "The selected subnet cannot be used with this bare metal offering."
-	messageFailureNetworkAttachment = "Network attachment did not complete."
-	messageFailureNetworkHandoff    = "Network handoff (reboot) did not complete."
-	messageFailureIPDiscovery       = "IP address discovery did not complete."
-	messageFailureReadyTimeout      = "The instance did not reach its powered-on ready state."
+	messageFailureNoMatchingHosts         = "No bare metal host matched the requested profile."
+	messageFailureHostAllocation          = "Host allocation failed."
+	messageFailureProvisionJob            = "OS installation and configuration did not complete; the provisioning job failed."
+	messageFailureUnsupportedImage        = "The selected disk image is not supported for this bare metal offering."
+	messageFailureUnsupportedSubnet       = "The selected subnet cannot be used with this bare metal offering."
+	messageFailureUnsupportedInstanceType = "No bare-metal capacity is configured for this hardware type and tenant."
+	messageFailureNetworkAttachment       = "Network attachment did not complete."
+	messageFailureNetworkHandoff          = "Network handoff (reboot) did not complete."
+	messageFailureIPDiscovery             = "IP address discovery did not complete."
+	messageFailureReadyTimeout            = "The instance did not reach its powered-on ready state."
 )
 
 // FunctionBuilder contains the data and logic needed to build a function that reconciles bare metal instances.
@@ -800,6 +801,8 @@ func failureMessage(failure bmfov1alpha1.FailureClassification) string {
 		return messageFailureUnsupportedImage
 	case bmfov1alpha1.FailureUnsupportedSubnet:
 		return messageFailureUnsupportedSubnet
+	case bmfov1alpha1.FailureUnsupportedInstanceType:
+		return messageFailureUnsupportedInstanceType
 	case bmfov1alpha1.FailureNetworkAttachment:
 		return messageFailureNetworkAttachment
 	case bmfov1alpha1.FailureNetworkHandoff:
@@ -835,6 +838,7 @@ func (t *task) mutateBMI(ctx context.Context, object *bmfov1alpha1.BareMetalInst
 	if instanceTypeRef == nil {
 		return fmt.Errorf("BareMetalInstance '%s' has no instance_type", t.bareMetalInstance.GetId())
 	}
+	object.Annotations[annotations.BareMetalInstanceType] = instanceTypeRef.GetId()
 
 	// Replace any prior selector so updates cannot retain legacy placement labels.
 	object.Spec.Selector.HostSelector = make(map[string]string)

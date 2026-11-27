@@ -26,3 +26,7 @@ const OwnerReference = "osac.openshift.io/owner-reference"
 // annotation, not a template parameter, so adding it does not change the
 // provisioning configuration hash of existing instances.
 const DiskImage = "osac.openshift.io/disk-image-id"
+
+// BareMetalInstanceType is the resolved OSAC hardware type of a bare-metal
+// instance. Fulfillment sets it for provider placement and credential selection.
+const BareMetalInstanceType = "osac.openshift.io/bare-metal-instance-type-id"

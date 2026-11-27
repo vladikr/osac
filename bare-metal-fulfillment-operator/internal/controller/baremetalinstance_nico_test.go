@@ -67,13 +67,13 @@ func (p *nicoPilotProvider) GetDeprovisionStatusWithExtraVars(_ context.Context,
 	}, nil
 }
 
-const nicoTestBindings = `version: 2
+const nicoTestBindings = `version: 3
 bindings:
   - osacTenantID: pilot-tenant
-    osacSubnetID: osac-pilot-subnet
+    osacInstanceTypeID: nico-gb300
     credentialIDs: [41]
   - osacTenantID: other-tenant
-    osacSubnetID: other-subnet
+    osacInstanceTypeID: nico-gb300
     credentialIDs: [42]
 operatingSystems:
   - diskImageID: centos-disk-image
@@ -110,6 +110,7 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 					"osac.openshift.io/tenant":          "pilot-tenant",
 					"osac.openshift.io/owner-reference": "BareMetalInstance/nico-bmi-pilot",
 					diskImageIDAnnotation:               "centos-disk-image",
+					instanceTypeIDAnnotation:            "nico-gb300",
 				},
 			},
 			Spec: v1alpha1.BareMetalInstanceSpec{
@@ -198,6 +199,7 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 					"osac.openshift.io/tenant":          "other-tenant",
 					"osac.openshift.io/owner-reference": "BareMetalInstance/nico-bmi-other",
 					diskImageIDAnnotation:               "centos-disk-image",
+					instanceTypeIDAnnotation:            "nico-gb300",
 				},
 			},
 			Spec: v1alpha1.BareMetalInstanceSpec{
@@ -215,8 +217,24 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		Expect(provider.launches).To(Equal(1))
 	})
 
-	It("refuses a tenant and Subnet combination with no binding before creating", func() {
-		bmi.Annotations["osac.openshift.io/tenant"] = "other-tenant"
+	It("uses one tenant and InstanceType binding for another Subnet", func() {
+		otherSubnetBMI := bmi.DeepCopy()
+		otherSubnetBMI.Spec.NetworkAttachments[0].SubnetRef = "another-pilot-subnet"
+		boundCtx, _, err := reconciler.withNicoCredentials(ctx, otherSubnetBMI)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(provisioning.AAPCredentialIDsFromContext(boundCtx)).To(Equal([]int{41}))
+	})
+
+	It("accepts the legacy version 2 tenant and Subnet binding", func() {
+		legacy := nicoTestBindingsV1Body(2) + "operatingSystems:\n  - diskImageID: centos-disk-image\n    nicoOperatingSystemID: nico-centos-os\n"
+		Expect(os.WriteFile(reconciler.NicoBindingsConfigPath, []byte(legacy), 0600)).To(Succeed())
+		boundCtx, _, err := reconciler.withNicoCredentials(ctx, bmi)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(provisioning.AAPCredentialIDsFromContext(boundCtx)).To(Equal([]int{41}))
+	})
+
+	It("refuses a tenant and InstanceType combination with no binding before creating", func() {
+		bmi.Annotations[instanceTypeIDAnnotation] = "unconfigured-type"
 		Expect(k8sClient.Update(ctx, bmi)).To(Succeed())
 		reconcile() // finalizer is installed before any external create
 		_, err := reconciler.Reconcile(ctx, req)
@@ -226,7 +244,25 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		Expect(fresh.Status.NicoCreateAttempted).To(BeFalse())
 		condition := fresh.GetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete)
 		Expect(condition).NotTo(BeNil())
-		Expect(condition.Reason).To(Equal(v1alpha1.HostConditionReasonUnsupportedSubnet))
+		Expect(condition.Reason).To(Equal(v1alpha1.HostConditionReasonUnsupportedInstanceType))
+		Expect(provider.launches).To(BeZero())
+	})
+
+	It("requires a fulfillment-resolved InstanceType in version 3", func() {
+		delete(bmi.Annotations, instanceTypeIDAnnotation)
+		Expect(k8sClient.Update(ctx, bmi)).To(Succeed())
+		reconcile()
+		_, err := reconciler.Reconcile(ctx, req)
+		Expect(err).To(MatchError(ContainSubstring("resolved BMI InstanceType ID")))
+		Expect(provider.launches).To(BeZero())
+	})
+
+	It("retains tenant isolation when selecting credentials by InstanceType", func() {
+		bmi.Annotations["osac.openshift.io/tenant"] = "unconfigured-tenant"
+		Expect(k8sClient.Update(ctx, bmi)).To(Succeed())
+		reconcile()
+		_, err := reconciler.Reconcile(ctx, req)
+		Expect(err).To(MatchError(ContainSubstring("no NICo tenant binding")))
 		Expect(provider.launches).To(BeZero())
 	})
 
@@ -351,7 +387,13 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 			"duplicate NICo Operating System catalog entry"),
 		Entry("catalog in version 1",
 			nicoTestBindingsV1Body(1)+"operatingSystems:\n  - diskImageID: centos-disk-image\n    nicoOperatingSystemID: nico-centos-os\n",
-			"catalog requires bindings version 2"),
+			"catalog requires bindings version 2 or 3"),
+		Entry("version 3 cannot bind a Subnet instead of an InstanceType",
+			"version: 3\nbindings:\n  - osacTenantID: pilot-tenant\n    osacSubnetID: osac-pilot-subnet\n    credentialIDs: [41]\n",
+			"requires an InstanceType ID and no Subnet ID"),
+		Entry("version 3 cannot bind both a Subnet and an InstanceType",
+			"version: 3\nbindings:\n  - osacTenantID: pilot-tenant\n    osacInstanceTypeID: nico-gb300\n    osacSubnetID: osac-pilot-subnet\n    credentialIDs: [41]\n",
+			"requires an InstanceType ID and no Subnet ID"),
 	)
 
 	Context("when the NICo create job fails", func() {

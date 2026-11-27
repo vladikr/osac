@@ -72,15 +72,12 @@ properties for the real GB300 trays.
    osac get securitygroups nico-fnn-test-sg
    ```
 
-4. Create a separate NICo AWX BMI credential for the new OSAC Subnet (or edit
-   the existing pilot credential only after all its BMIs are gone). Preserve
-   its NICo authentication and Instance Type settings. Add these fields to the
-   AWX custom credential type's environment injector and supply their values
-   on the credential:
+4. Use the NICo AWX BMI credential bound to this tenant and OSAC InstanceType.
+   A new Subnet within the configured derived tenant IP Block needs no new
+   credential or ConfigMap entry. The credential supplies:
 
    | Environment variable | Value |
    | --- | --- |
-   | `NICO_BMAAS_OSAC_SUBNET_ID` | New OSAC Subnet ID |
    | `NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE` | `FNN` |
    | `NICO_BMAAS_FNN_AUTO_CREATE` | `true` |
    | `NICO_BMAAS_SITE_ID` | NICo Site UUID (`d88d241d-a727-49c9-9fbb-521595a4eaa5` in the lab) |
@@ -94,12 +91,13 @@ properties for the real GB300 trays.
    corresponding NICo NSG is enforced. Do not present this as a firewall test.
    Keep all tokens and client secrets in AWX, never in the binding ConfigMap.
 
-5. Add a `version: 2` entry for the new OSAC tenant/Subnet to the existing
-   `osac-nico-tenant-bindings` ConfigMap. Its `credentialIDs` must include the
-   AWX Kubernetes credential and this new NICo credential. Map the
+5. Add a `version: 3` entry for the OSAC tenant and InstanceType to the
+   `osac-nico-tenant-bindings` ConfigMap, if one is not already present. Its
+   `credentialIDs` must include the AWX Kubernetes credential and NICo
+   credential. Map the
    `centos-stream-10` DiskImage ID to the validated NICo Operating System
    `3403dd3c-83c3-474a-b62b-1aeaddf81ac4`. The operator selects the
-   credential from this exact tenant/Subnet binding. The pilot catalog seed
+   credential from this exact tenant/InstanceType binding. The pilot catalog seed
    script registers the same tenant-scoped DiskImage record used in the
    original Launchpad pilot.
 
@@ -115,8 +113,14 @@ properties for the real GB300 trays.
    AWX Kubernetes credential ID and creates the two BMF configuration Secrets.
    The helper reads the NICo CA and client secret from
    `$HOME/.local/share/nico-pilot/` and never puts their values in the binding.
-   It does not enable BMF or create a NICo resource. Its fixed Subnet, Site,
-   IP Block, and OS IDs are specific to this test environment.
+   It does not enable BMF or create a NICo resource. Its fixed Site, IP Block,
+   and OS IDs are specific to this test environment. The printed Subnet ID is
+   only the example used by the demo; it is not part of the binding.
+   On an existing version 2 pilot, wait for every NICo BMI to finish deletion
+   before replacing the binding ConfigMap. The helper uses a new AWX credential
+   type and credential name for version 3, leaving the old credential available
+   until those deletes finish. It refuses to overwrite a different ConfigMap;
+   inspect and remove the old pilot ConfigMap after the drain, then rerun it.
 
 6. On the Launchpad pilot VM, deploy this branch from the contributor fork:
 

@@ -102,6 +102,9 @@ const (
 	// FailureUnsupportedSubnet means the requested Subnet has no approved provider
 	// binding, so no provision job ran (PROVISIONED axis).
 	FailureUnsupportedSubnet FailureClassification = "UnsupportedSubnet"
+	// FailureUnsupportedInstanceType means no approved provider capacity binding
+	// exists for this tenant and hardware type, so no provision job ran.
+	FailureUnsupportedInstanceType FailureClassification = "UnsupportedInstanceType"
 	// FailureNetworkAttachment means network attachment failed (PROVISIONED axis).
 	FailureNetworkAttachment FailureClassification = "NetworkAttachmentFailed"
 	// FailureNetworkHandoff means the network handoff reboot failed (PROVISIONED axis).
@@ -275,6 +278,8 @@ func classifyHostConditionFailure(
 			return StepProvisioning, FailureUnsupportedDiskImage
 		case HostConditionReasonUnsupportedSubnet:
 			return StepProvisioning, FailureUnsupportedSubnet
+		case HostConditionReasonUnsupportedInstanceType:
+			return StepProvisioning, FailureUnsupportedInstanceType
 		}
 		return StepProvisioning, FailureProvisionJob
 	case HostConditionNetworkAttachmentsReady:

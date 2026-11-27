@@ -171,13 +171,13 @@ The file contains resource identities, AWX credential IDs, and NICo Operating
 System IDs, **not** NICo credential values:
 
 ```yaml
-version: 2
+version: 3
 bindings:
   - osacTenantID: <OSAC tenant ID>
-    osacSubnetID: <OSAC Subnet ID>
+    osacInstanceTypeID: <OSAC BareMetalInstanceType ID>
     credentialIDs: [<AWX required Kubernetes credential ID>, <AWX NICo credential ID>]
   - osacTenantID: <second OSAC tenant ID>
-    osacSubnetID: <second OSAC Subnet ID>
+    osacInstanceTypeID: <OSAC BareMetalInstanceType ID>
     credentialIDs: [<AWX required Kubernetes credential ID>, <second AWX NICo credential ID>]
 operatingSystems:
   - diskImageID: <OSAC DiskImage ID>
@@ -193,9 +193,12 @@ sets, and passes the mapped Operating System to the AAP create job. A DiskImage
 without an entry fails with `ProvisionTemplateComplete=False`, reason
 `UnsupportedDiskImage`, and never reaches NICo. That rejection is terminal:
 after the DiskImage is added to the catalog, the tenant recreates the BMI.
-Creation requires `version: 2`; a `version: 1` file has no catalog and fails
+Creation requires `version: 2` or `version: 3`; a `version: 1` file has no catalog and fails
 creation as a configuration error, which is retried once the ConfigMap is
-fixed. Deletion only needs the tenant binding, so it accepts both versions.
+fixed. Versions 1 and 2 retain the old tenant/Subnet lookup for existing pilot
+installations. Deletion accepts all three versions, but changing a live BMI's
+binding before cleanup can prevent deletion; drain existing BMIs before
+replacing a version 2 ConfigMap with version 3.
 The NICo Operating System is never taken from the AWX credential.
 
 The catalog Operating System must be a `Ready` templated iPXE definition
@@ -216,15 +219,18 @@ NICo; an Instance that never got a Machine is released once it is gone.
 also reported IDs, which are always saved and released.
 
 `osacTenantID` is the exact BMI `osac.openshift.io/tenant` annotation value
-(currently the OSAC tenant name). `osacSubnetID` is the public OSAC Subnet ID
-in `spec.networkAttachments[0].subnetRef`. The AWX credential independently
-contains the corresponding NICo Tenant, VPC, and Subnet IDs.
+(currently the OSAC tenant name). `osacInstanceTypeID` matches the selected
+OSAC BareMetalInstanceType ID, which Fulfillment writes to the BMI's
+`osac.openshift.io/bare-metal-instance-type-id` annotation. The requested
+Subnet ID remains in `spec.networkAttachments[0].subnetRef`. The FNN role reads
+that Subnet and validates its owner, parent network, and CIDR against the
+configured NICo tenant IP Block before creating a NICo Prefix.
 
-The operator selects a binding by exact tenant annotation and Subnet reference
+The operator selects a version 3 binding by exact tenant and InstanceType IDs
 before a NICo create or delete launch. The selected AWX credential must inject
-the matching `NICO_BMAAS_OSAC_TENANT_ID` and `NICO_BMAAS_OSAC_SUBNET_ID` along
-with NICo tenant, network, and scoped authentication values; the role validates
-both OSAC IDs again before a NICo REST call. `credentialIDs` is the complete
+the matching `NICO_BMAAS_OSAC_TENANT_ID` along with NICo tenant, site, IP Block,
+Instance Type, and scoped authentication values; the role validates the tenant
+again before a NICo REST call. `credentialIDs` is the complete
 credential set for the job because AWX launch-time credentials override the
 job template's defaults. The create/delete bare-metal job templates must have
 `ask_credential_on_launch: true`; the operator refuses to launch with a

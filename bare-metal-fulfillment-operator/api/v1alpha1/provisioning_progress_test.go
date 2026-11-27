@@ -209,6 +209,9 @@ var _ = Describe("DeriveProvisioningProgress", func() {
 		Entry("ProvisionTemplateComplete False+UnsupportedSubnet -> unsupported Subnet",
 			[]metav1.Condition{condFalse(HostConditionProvisionTemplateComplete, HostConditionReasonUnsupportedSubnet)},
 			ProvisioningProgress{State: StateFailed, Step: StepProvisioning, Failure: FailureUnsupportedSubnet}),
+		Entry("ProvisionTemplateComplete False+UnsupportedInstanceType -> unsupported InstanceType",
+			[]metav1.Condition{condFalse(HostConditionProvisionTemplateComplete, HostConditionReasonUnsupportedInstanceType)},
+			ProvisioningProgress{State: StateFailed, Step: StepProvisioning, Failure: FailureUnsupportedInstanceType}),
 		Entry("NetworkAttachmentsReady False+TemplateFailed -> network attachment failure",
 			[]metav1.Condition{
 				condTrue(HostConditionAllocated),

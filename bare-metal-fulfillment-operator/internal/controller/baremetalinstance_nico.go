@@ -136,6 +136,9 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaS(ctx context.Context, bm
 		if errors.Is(err, errNicoSubnetUnbound) {
 			reason = v1alpha1.HostConditionReasonUnsupportedSubnet
 		}
+		if errors.Is(err, errNicoInstanceTypeUnbound) {
+			reason = v1alpha1.HostConditionReasonUnsupportedInstanceType
+		}
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
 		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
 			reason, "NICo tenant binding is unavailable")

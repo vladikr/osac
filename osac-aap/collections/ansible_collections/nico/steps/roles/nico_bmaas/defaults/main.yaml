@@ -11,7 +11,7 @@ nico_bmaas_tenant_org: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_ORG'
 nico_bmaas_provider_org: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_PROVIDER_ORG') }}"
 nico_bmaas_tenant_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_TENANT_ID') }}"
 nico_bmaas_osac_tenant_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_OSAC_TENANT_ID') }}"
-nico_bmaas_osac_subnet_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_OSAC_SUBNET_ID') }}"
+nico_bmaas_osac_subnet_id: "{{ (bare_metal_instance.spec.networkAttachments | default([]) | first | default({})).subnetRef | default('') }}"
 nico_bmaas_vpc_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_VPC_ID') }}"
 nico_bmaas_instance_type_id: "{{ lookup('ansible.builtin.env', 'NICO_BMAAS_INSTANCE_TYPE_ID') }}"
 # Pin a pilot to one approved Machine instead of using an Instance Type pool.
