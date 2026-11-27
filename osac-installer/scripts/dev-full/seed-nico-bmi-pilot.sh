@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Register the shared NICo GB300 hardware type and BMI template in a Kind dev-full pilot.
+# Register the NICo GB300 hardware type, BMI template, and tenant1 pilot catalog item.
 # Credentials come from the deployed Fulfillment Secret and never enter the source tree.
 set -euo pipefail
 set +x
@@ -104,6 +104,16 @@ cat > "${temporary_dir}/template.json" <<'JSON'
 }
 JSON
 
+cat > "${temporary_dir}/catalog.json" <<'JSON'
+{
+  "metadata": {"name": "nico-gb300-fnn-pilot", "tenant": "tenant1"},
+  "title": "NICo GB300 FNN pilot",
+  "description": "GB300 bare metal provisioning with NICo FNN network realization.",
+  "template": {"id": "osac.templates.nico_bm_host_provisioning"},
+  "published": true
+}
+JSON
+
 ensure_resource() {
   local resource="$1" id="$2" payload="$3" kind="$4" code
   code="$(curl "${curl_args[@]}" --output "${temporary_dir}/response.json" \
@@ -142,3 +152,28 @@ ensure_resource() {
 
 ensure_resource bare_metal_instance_types nico-gb300-nvl72 "${temporary_dir}/type.json" type
 ensure_resource baremetal_instance_templates osac.templates.nico_bm_host_provisioning "${temporary_dir}/template.json" template
+
+curl "${curl_args[@]}" --fail --output "${temporary_dir}/catalog-list.json" \
+  "${api}/baremetal_instance_catalog_items"
+matches="$(jq -c '[.items[]? | select(.metadata.tenant == "tenant1" and .metadata.name == "nico-gb300-fnn-pilot")]' \
+  "${temporary_dir}/catalog-list.json")"
+count="$(jq 'length' <<< "${matches}")"
+case "${count}" in
+  0)
+    code="$(curl "${curl_args[@]}" --header 'Content-Type: application/json' \
+      --data-binary "@${temporary_dir}/catalog.json" --output "${temporary_dir}/response.json" \
+      --write-out '%{http_code}' "${api}/baremetal_instance_catalog_items")"
+    if [[ "${code}" != 2* ]]; then
+      jq '{code,message}' "${temporary_dir}/response.json" >&2 || true
+      fail "creating tenant1 NICo catalog item returned HTTP ${code}"
+    fi
+    jq -er 'select(.id != null and .metadata.tenant == "tenant1") | "baremetal_instance_catalog_items/\(.id): created"' \
+      "${temporary_dir}/response.json" || fail "catalog create response was incomplete"
+    ;;
+  1)
+    jq -e '.[0] | .template.id == "osac.templates.nico_bm_host_provisioning" and .published == true' \
+      <<< "${matches}" >/dev/null || fail "existing tenant1 NICo catalog item differs from pilot configuration"
+    jq -r '.[0] | "baremetal_instance_catalog_items/\(.id): already matches"' <<< "${matches}"
+    ;;
+  *) fail "multiple tenant1 NICo catalog items have the pilot name" ;;
+esac
