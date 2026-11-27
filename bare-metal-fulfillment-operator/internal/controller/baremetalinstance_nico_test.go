@@ -104,6 +104,7 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 	BeforeEach(func() {
 		provider = &nicoPilotProvider{outputs: map[string]any{
 			"nicoInstanceID": "nico-instance-1", "nicoMachineID": "nico-machine-1", "nicoIPAddress": "10.217.98.2",
+			"nicoVpcID": "nico-vpc-1", "nicoVpcPrefixID": "nico-prefix-1",
 		}, expectedCredentialIDs: []int{41}}
 		bmi = &v1alpha1.BareMetalInstance{
 			ObjectMeta: metav1.ObjectMeta{

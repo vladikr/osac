@@ -51,9 +51,13 @@ create table active_bare_metal_placement_targets (
 create unique index bare_metal_placement_targets_unique_name
   on bare_metal_placement_targets (tenant, name) where deletion_timestamp = 'epoch';
 create index bare_metal_placement_targets_by_type
-  on bare_metal_placement_targets (tenant, (data->'spec'->>'osacInstanceTypeId'))
+  on bare_metal_placement_targets (tenant, (data->'spec'->>'osac_instance_type_id'))
   where deletion_timestamp = 'epoch';
 create index bare_metal_placement_targets_by_creator on bare_metal_placement_targets (creator);
+-- Target removal checks every active BMI that pinned the target.
+create index bare_metal_instances_by_placement_target
+  on bare_metal_instances ((data->'status'->>'placement_target_id'))
+  where deletion_timestamp = 'epoch' and coalesce(data->'status'->>'placement_target_id', '') <> '';
 create index bare_metal_placement_targets_by_label on bare_metal_placement_targets using gin (labels);
 alter table bare_metal_placement_targets add constraint bare_metal_placement_targets_tenant_fk
   foreign key (tenant) references tenants (name);
@@ -104,7 +108,7 @@ create table active_network_realizations (
 -- from being soft-deleted while a Prefix still references it, including races
 -- between a child create and parent delete.
 alter table network_realizations add column parent_realization_id text
-  generated always as (nullif(data->'spec'->>'parentRealizationId', '')) stored;
+  generated always as (nullif(data->'spec'->>'parent_realization_id', '')) stored;
 alter table network_realizations add constraint network_realizations_parent_fk
   foreign key (parent_realization_id) references active_network_realizations (id);
 
@@ -115,21 +119,21 @@ create unique index network_realizations_unique_name
 create unique index network_realizations_unique_virtual_network
   on network_realizations (
     tenant,
-    (data->'spec'->>'osacVirtualNetworkId'),
-    (data->'spec'->>'siteId'),
-    (data->'spec'->>'networkConfigRef')
-  ) where deletion_timestamp = 'epoch' and coalesce(data->'spec'->>'osacSubnetId', '') = '';
+    (data->'spec'->>'osac_virtual_network_id'),
+    (data->'spec'->>'site_id'),
+    (data->'spec'->>'network_config_ref')
+  ) where deletion_timestamp = 'epoch' and coalesce(data->'spec'->>'osac_subnet_id', '') = '';
 create unique index network_realizations_unique_subnet
   on network_realizations (
     tenant,
-    (data->'spec'->>'osacSubnetId'),
-    (data->'spec'->>'parentRealizationId')
-  ) where deletion_timestamp = 'epoch' and coalesce(data->'spec'->>'osacSubnetId', '') <> '';
+    (data->'spec'->>'osac_subnet_id'),
+    (data->'spec'->>'parent_realization_id')
+  ) where deletion_timestamp = 'epoch' and coalesce(data->'spec'->>'osac_subnet_id', '') <> '';
 create unique index network_realizations_unique_provider_name
   on network_realizations (
-    (data->'spec'->>'siteId'),
-    (data->'spec'->>'networkConfigRef'),
-    (data->'spec'->>'providerName')
+    (data->'spec'->>'site_id'),
+    (data->'spec'->>'network_config_ref'),
+    (data->'spec'->>'provider_name')
   ) where deletion_timestamp = 'epoch';
 create index network_realizations_by_creator on network_realizations (creator);
 create index network_realizations_by_label on network_realizations using gin (labels);

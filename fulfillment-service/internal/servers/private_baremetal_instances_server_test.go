@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
@@ -3183,6 +3184,7 @@ var _ = Describe("Private bare metal instances server", func() {
 					}.Build(),
 					Spec: privatev1.VirtualNetworkSpec_builder{
 						NetworkClass: privatev1.NetworkClassReference_builder{Id: ncResp.GetObject().GetId()}.Build(),
+						Ipv4Cidr:     new("10.181.0.0/24"),
 					}.Build(),
 				}.Build(),
 			).Do(ctx)
@@ -3197,6 +3199,7 @@ var _ = Describe("Private bare metal instances server", func() {
 					}.Build(),
 					Spec: privatev1.SubnetSpec_builder{
 						VirtualNetwork: privatev1.VirtualNetworkLocalReference_builder{Id: vnResp.GetObject().GetId()}.Build(),
+						Ipv4Cidr:       new("10.181.0.32/28"),
 					}.Build(),
 				}.Build(),
 			).Do(ctx)
@@ -3276,6 +3279,19 @@ var _ = Describe("Private bare metal instances server", func() {
 
 		It("allows the NICo template to own fabric programming for a resolved tenant subnet", func() {
 			subnetID, sgID := createSubnet(nil, new("cudn_localnet"))
+			targetsDao, err := dao.NewGenericDAO[*privatev1.BareMetalPlacementTarget]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
+			Expect(err).ToNot(HaveOccurred())
+			target, err := targetsDao.Create().SetObject(&privatev1.BareMetalPlacementTarget{
+				Metadata: &privatev1.Metadata{Tenant: testTenant, Name: "nico-gb300-site-a"},
+				Spec: &privatev1.BareMetalPlacementTargetSpec{
+					OsacTenantId: testTenant, OsacInstanceTypeId: "default-type", SiteId: "site-a",
+					ProviderConfigRef: "nico-pool-a", NetworkConfigRef: "nico-fnn-site-a",
+				},
+				Status: &privatev1.BareMetalPlacementTargetStatus{
+					Ready: true, ValidatedFingerprint: "validated-test-fingerprint", ObservedIpBlockCidr: "10.181.0.0/24", ValidatedAt: timestamppb.Now(),
+				},
+			}).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
 			templatesDao, err := dao.NewGenericDAO[*privatev1.BareMetalInstanceTemplate]().
 				SetLogger(logger).SetTenancyLogic(tenancy).Build()
 			Expect(err).ToNot(HaveOccurred())
@@ -3289,7 +3305,7 @@ var _ = Describe("Private bare metal instances server", func() {
 				}.Build(),
 			}.Build()).Do(ctx)
 			Expect(err).ToNot(HaveOccurred())
-			_, err = server.Create(ctx, privatev1.BareMetalInstancesCreateRequest_builder{
+			created, err := server.Create(ctx, privatev1.BareMetalInstancesCreateRequest_builder{
 				Object: privatev1.BareMetalInstance_builder{
 					Metadata: privatev1.Metadata_builder{Name: fmt.Sprintf("nico-%s", uuid.NewString()[:8])}.Build(),
 					Spec: privatev1.BareMetalInstanceSpec_builder{
@@ -3308,6 +3324,12 @@ var _ = Describe("Private bare metal instances server", func() {
 				}.Build(),
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
+			Expect(created.GetObject().GetStatus().GetPlacementTargetId()).To(Equal(target.GetObject().GetId()))
+			Expect(created.GetObject().GetStatus().GetPlacementSiteId()).To(Equal("site-a"))
+			targetServer, err := NewPrivateBareMetalPlacementTargetsServer(logger, attribution, tenancy, nil)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = targetServer.Delete(ctx, privatev1.BareMetalPlacementTargetsDeleteRequest_builder{Id: target.GetObject().GetId()}.Build())
+			Expect(grpcstatus.Code(err)).To(Equal(grpccodes.FailedPrecondition))
 		})
 
 		It("rejects Create when a security group is assigned to a different Hub than its subnet", func() {

@@ -16,6 +16,7 @@ package servers
 import (
 	"context"
 	"log/slog"
+	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
+	"github.com/osac-project/osac/fulfillment-service/internal/database/dao"
 	privatev1 "github.com/osac-project/osac/proto/gen/osac/private/v1"
 )
 
@@ -30,7 +32,8 @@ import (
 // Validation and placement are separate controllers; a new target is never Ready on create.
 type PrivateBareMetalPlacementTargetsServer struct {
 	privatev1.UnimplementedBareMetalPlacementTargetsServer
-	generic *GenericServer[*privatev1.BareMetalPlacementTarget]
+	generic               *GenericServer[*privatev1.BareMetalPlacementTarget]
+	bareMetalInstancesDao *dao.GenericDAO[*privatev1.BareMetalInstance]
 }
 
 func NewPrivateBareMetalPlacementTargetsServer(logger *slog.Logger, attribution auth.AttributionLogic,
@@ -45,7 +48,11 @@ func NewPrivateBareMetalPlacementTargetsServer(logger *slog.Logger, attribution 
 	if err != nil {
 		return nil, err
 	}
-	return &PrivateBareMetalPlacementTargetsServer{generic: generic}, nil
+	bmis, err := dao.NewGenericDAO[*privatev1.BareMetalInstance]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
+	if err != nil {
+		return nil, err
+	}
+	return &PrivateBareMetalPlacementTargetsServer{generic: generic, bareMetalInstancesDao: bmis}, nil
 }
 
 func (s *PrivateBareMetalPlacementTargetsServer) List(ctx context.Context,
@@ -87,6 +94,14 @@ func (s *PrivateBareMetalPlacementTargetsServer) Update(ctx context.Context,
 
 func (s *PrivateBareMetalPlacementTargetsServer) Delete(ctx context.Context,
 	request *privatev1.BareMetalPlacementTargetsDeleteRequest) (response *privatev1.BareMetalPlacementTargetsDeleteResponse, err error) {
+	filter := "this.status.placement_target_id == " + strconv.Quote(request.GetId())
+	used, err := s.bareMetalInstancesDao.List().SetFilter(filter).SetLimit(0).Do(ctx)
+	if err != nil {
+		return nil, ConvertDAOErrorToGRPC(err, "list", "bare metal instances")
+	}
+	if used.GetTotal() > 0 {
+		return nil, status.Error(codes.FailedPrecondition, "placement target is referenced by a bare metal instance")
+	}
 	err = s.generic.Delete(ctx, request, &response)
 	return
 }

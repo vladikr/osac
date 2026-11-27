@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/netip"
+	"strconv"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -67,6 +69,7 @@ type PrivateBareMetalInstancesServer struct {
 	catalogItemsDao         *dao.GenericDAO[*privatev1.BareMetalInstanceCatalogItem]
 	templatesDao            *dao.GenericDAO[*privatev1.BareMetalInstanceTemplate]
 	instanceTypesDao        *dao.GenericDAO[*privatev1.BareMetalInstanceType]
+	placementTargetsDao     *dao.GenericDAO[*privatev1.BareMetalPlacementTarget]
 	subnetsDao              *dao.GenericDAO[*privatev1.Subnet]
 	virtualNetworksDao      *dao.GenericDAO[*privatev1.VirtualNetwork]
 	networkClassesDao       *dao.GenericDAO[*privatev1.NetworkClass]
@@ -149,6 +152,10 @@ func (b *PrivateBareMetalInstancesServerBuilder) Build() (result *PrivateBareMet
 	}
 
 	instanceTypesDao, err := dao.NewGenericDAO[*privatev1.BareMetalInstanceType]().SetLogger(b.logger).SetTenancyLogic(b.tenancyLogic).SetMetricsRegisterer(b.metricsRegisterer).Build()
+	if err != nil {
+		return
+	}
+	placementTargetsDao, err := dao.NewGenericDAO[*privatev1.BareMetalPlacementTarget]().SetLogger(b.logger).SetTenancyLogic(b.tenancyLogic).SetMetricsRegisterer(b.metricsRegisterer).Build()
 	if err != nil {
 		return
 	}
@@ -253,6 +260,7 @@ func (b *PrivateBareMetalInstancesServerBuilder) Build() (result *PrivateBareMet
 		catalogItemsDao:         catalogItemsDao,
 		templatesDao:            templatesDao,
 		instanceTypesDao:        instanceTypesDao,
+		placementTargetsDao:     placementTargetsDao,
 		subnetsDao:              subnetsDao,
 		virtualNetworksDao:      virtualNetworksDao,
 		networkClassesDao:       networkClassesDao,
@@ -349,6 +357,7 @@ func (s *PrivateBareMetalInstancesServer) prepareCreate(ctx context.Context, can
 		return
 	}
 	normalizeSoleBareMetalAttachmentPrimary(candidate.GetSpec().GetNetworkAttachments())
+	var placementSubnet *privatev1.Subnet
 	hubReferences := make([]networkingHubReference, 0, len(candidate.GetSpec().GetNetworkAttachments())*2)
 	for i, attachment := range candidate.GetSpec().GetNetworkAttachments() {
 		source := fmt.Sprintf(" in spec.network_attachments[%d]", i)
@@ -359,6 +368,7 @@ func (s *PrivateBareMetalInstancesServer) prepareCreate(ctx context.Context, can
 		if err = validateResolvedSubnetReady(subnet, refKey(attachment.GetSubnet()), source); err != nil {
 			return
 		}
+		placementSubnet = subnet
 		hubReferences = append(hubReferences, networkingHubReference{
 			resourceType: "Subnet",
 			id:           subnet.GetId(),
@@ -414,10 +424,65 @@ func (s *PrivateBareMetalInstancesServer) prepareCreate(ctx context.Context, can
 		if err := validation.ValidateBareMetalDiskImageArchitecture(instanceType, resolved); err != nil {
 			return nil, grpcstatus.Error(grpccodes.InvalidArgument, err.Error())
 		}
+		if refKey(candidate.GetSpec().GetTemplate()) == "osac.templates.nico_bm_host_provisioning" {
+			if err := s.pinNicoPlacementTarget(ctx, candidate, instanceType.GetId(), placementSubnet); err != nil {
+				return nil, err
+			}
+		}
 		return warnings, nil
 	}
 
 	return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "disk_image is mandatory")
+}
+
+// pinNicoPlacementTarget gives dry-run and real Create the same early compatibility
+// decision. Only one Ready target may cover this tenant, type and Subnet. The
+// selected target is persisted on the BMI before its Kubernetes CR is created.
+func (s *PrivateBareMetalInstancesServer) pinNicoPlacementTarget(ctx context.Context, candidate *privatev1.BareMetalInstance, typeID string, subnet *privatev1.Subnet) error {
+	if subnet == nil {
+		return grpcstatus.Error(grpccodes.InvalidArgument, "NICo bare metal requires one Subnet")
+	}
+	requested, err := netip.ParsePrefix(subnet.GetSpec().GetIpv4Cidr())
+	if err != nil || !requested.Addr().Is4() || requested.Masked() != requested {
+		return grpcstatus.Error(grpccodes.InvalidArgument, "NICo bare metal requires an IPv4 Subnet")
+	}
+	filter := "this.spec.osac_instance_type_id == " + strconv.Quote(typeID)
+	result, err := s.placementTargetsDao.List().SetFilter(filter).SetLimit(1000).Do(ctx)
+	if err != nil {
+		return ConvertDAOErrorToGRPC(err, "list", "bare metal placement targets")
+	}
+	if result.GetTotal() > int32(len(result.GetItems())) {
+		return grpcstatus.Error(grpccodes.FailedPrecondition, "too many placement targets to select safely")
+	}
+	var selected *privatev1.BareMetalPlacementTarget
+	for _, target := range result.GetItems() {
+		if target.GetMetadata().GetDeletionTimestamp() != nil || target.GetMetadata().GetTenant() != candidate.GetMetadata().GetTenant() ||
+			target.GetSpec().GetOsacTenantId() != candidate.GetMetadata().GetTenant() || target.GetSpec().GetOsacInstanceTypeId() != typeID ||
+			target.GetSpec().GetSiteId() == "" || target.GetSpec().GetNetworkConfigRef() == "" ||
+			!target.GetStatus().GetReady() || target.GetStatus().GetValidatedFingerprint() == "" || target.GetStatus().GetValidatedAt() == nil {
+			continue
+		}
+		block, parseErr := netip.ParsePrefix(target.GetStatus().GetObservedIpBlockCidr())
+		if parseErr != nil || !block.Addr().Is4() || block.Masked() != block || !block.Contains(requested.Addr()) || requested.Bits() < block.Bits() {
+			continue
+		}
+		if selected != nil {
+			return grpcstatus.Error(grpccodes.FailedPrecondition, "more than one compatible bare metal capacity target; provider placement policy is required")
+		}
+		selected = target
+	}
+	if selected == nil {
+		return grpcstatus.Error(grpccodes.FailedPrecondition, "this Subnet cannot be used with the selected bare metal hardware")
+	}
+	if candidate.GetStatus() == nil {
+		candidate.SetStatus(&privatev1.BareMetalInstanceStatus{})
+	}
+	candidate.GetStatus().SetPlacementTargetId(selected.GetId())
+	candidate.GetStatus().SetPlacementTargetFingerprint(selected.GetStatus().GetValidatedFingerprint())
+	candidate.GetStatus().SetPlacementSiteId(selected.GetSpec().GetSiteId())
+	candidate.GetStatus().SetPlacementNetworkConfigRef(selected.GetSpec().GetNetworkConfigRef())
+	candidate.GetStatus().SetPlacementProviderConfigRef(selected.GetSpec().GetProviderConfigRef())
+	return nil
 }
 
 // resolveCreationSource accepts exactly one provisioning source: spec.catalog_item or

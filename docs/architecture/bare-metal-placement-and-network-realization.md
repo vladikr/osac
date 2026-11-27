@@ -1,24 +1,32 @@
-# Bare-metal placement and network realization: first implementation slice
+# Bare-metal placement and network realization: FNN pilot implementation
 
 This draft follows the [OSAC-7351 working design](https://redhat.atlassian.net/browse/OSAC-7351). It adds two **private Fulfillment API** records. They are not Kubernetes CRDs and are never selected by tenants. `NetworkClass.fabricManager` continues to select the ordinary fabric manager; the NICo adapter is invoked only after a NICo capacity target has been selected for a BMI.
 
 ## Record contracts
 
-`BareMetalPlacementTarget` registers an OSAC tenant and bare-metal instance type against stable provider capacity and network configuration references, with a site where that is known before allocation. Several targets may serve the same tenant and type. Its status starts unready; a later validator must check the referenced configuration, remote capacity, address entitlement, and site fabric prerequisites, then save a fingerprint and observed IP Block CIDR. A target is selectable only when that validation is current and Ready.
+`BareMetalPlacementTarget` registers an OSAC tenant and bare-metal instance type against stable provider capacity and network configuration references, with a site known before allocation. Several targets may serve the same tenant and type. Its status starts unready. The Launchpad setup validates the NICo tenant IP Block and records its CIDR, time, and fingerprint; a production validator must also watch drift, capacity, address entitlements, and site fabric prerequisites. A target is selectable only when Ready with a recorded observation. If more than one Ready target fits, Create fails until a placement policy is configured.
 
 `NetworkRealization` stores one VirtualNetwork or Subnet intent for an OSAC tenant, site, and network configuration. A VirtualNetwork record corresponds to a provider VPC; a Subnet record references its parent and corresponds to an exact CIDR Prefix. The database has unique keys for both kinds, so concurrent BMI requests cannot create separate *intent records* for the same network. A record starts Pending with a stable provider name and no remote ID. The reconciler must persist this intent before calling NICo, then save the verified remote ID and observed CIDR. An ambiguous POST result must be resolved by a unique lookup with ownership checks, or the record remains Unknown for operator resolution. It must never be retried as an unconditional second POST.
 
 An adopted resource records its provider ID in the immutable spec; an OSAC-created resource obtains its ID only after creation. Ownership determines deletion behavior. A realization can be removed from Fulfillment only after its state is Deleted. Network realizations outlive each BMI and are removed in the Subnet and VirtualNetwork deletion paths, Prefix before VPC. They retain the OSAC tenant even when multiple OSAC tenants share one NICo tenant.
 
-## Scope of this slice
+## Wired create flow
 
-This branch introduces the private types, CRUD handlers, REST registration, tenant-scoped tables, and basic intent/identity validation. It does **not** yet route provisioning through these records. The existing pilot ConfigMap and AWX path remain active. `Ready` and `Deleted` status transitions are not yet backed by a remote reconciler; therefore these records must not be used as a placement or cleanup authority until the follow-up control loop is implemented.
+The private types, CRUD handlers, REST registration, and tenant-scoped tables are now connected to the FNN pilot create path:
 
-The next vertical slice must:
+1. BMI Create and dry-run resolve the effective instance type and Subnet, then select exactly one Ready target whose observed IP Block contains the exact Subnet CIDR. Real Create pins target ID, site, configuration references, and validation fingerprint in private BMI status. Ordinary inventory BMIs continue through their existing path.
+2. Before projecting a NICo BMI CR to Kubernetes, the Fulfillment BMI reconciler persists stable VirtualNetwork and Subnet realization intents. Their unique database keys prevent duplicate intent records; stable IDs permit recovery after an ambiguous create response. The CR carries the pinned target and intent IDs.
+3. BMF matches the pinned target to the provider-owned credential binding and passes the selected site and intent IDs to the NICo AAP job. The job checks the site and uses the existing NICo adapter's unique VPC/Prefix lookup, ownership checks, exact CIDR validation, and create-or-reuse behavior. It does not accept a tenant-supplied backend ID.
+4. BMF saves the provider VPC and Prefix IDs returned by the successful job. Fulfillment records them on the two realizations before reporting the reconciled BMI. BMI deletion continues to release only the NICo Instance and Machine, retaining shared network realizations.
 
-1. Define provider and network configuration records or an explicit reference to the existing `NICO_*` instance-group configuration, without storing credentials in these objects.
-2. Validate targets through a provider-scoped job, including site/IP Block identity, address entitlement, capacity, and attested fabric prerequisites; ensure only that controller can advance Ready status.
-3. Select and pin a target in the effective BMI Create and dry-run path, reject an incompatible Subnet early, and keep the ordinary inventory path available. The real Create path must make the attachment-domain claim atomic.
-4. Reconcile VPC and Prefix intent through NICo with safe ambiguous-result handling, parent validation, reuse, and exact CIDR checks; pass the Prefix ID to NICo Instance create.
-5. Guard target and realization references in the database and coordinate BMI and network-parent finalizers. Deleting a BMI must not delete its VN/Subnet realizations. A later Subnet or VN deletion must clean owned remote resources in order, while adopted resources remain provider-owned.
-6. Exercise multi-tenant isolation, concurrent creates, adoption, retries, deletion, and actual GB300 boot and network reachability in the Launchpad environment.
+`seed-nico-bmi-pilot.sh` registers the private target and `configure-nico-fnn-pilot.py` binds its AWX credential by OSAC type and target ID rather than a particular Subnet. The latter calls `validate-nico-placement-target.sh`, which checks the NICo IP Block before marking the target Ready. This is pilot configuration, not the final `network-fulfillment-ig` credential contract.
+
+## Remaining work before production
+
+The create flow is wired, but the following design requirements are still open:
+
+1. Replace the pilot AWX credential and one-time target validation with provider-scoped `network-fulfillment-ig` configuration, a periodic target validator, and access control so an arbitrary private API caller cannot mark a target Ready. Check capacity, address entitlement, fabric attestation, and drift.
+2. Make Subnet attachment-domain claims atomic across NICo BMIs, ordinary inventory BMIs, and VMs; test concurrent BMI Create and multiple eligible targets.
+3. Reconcile VPC/Prefix independently of the BMI job, including explicit adoption and recovery of partially completed jobs. Today a failed job may leave a Pending realization even when NICo has a VPC or Prefix; the next create can recover by the stable provider identity.
+4. Coordinate Subnet and VirtualNetwork deletion with ordered remote Prefix then VPC cleanup. The current realization Delete handler requires a DELETED state, but no remote deletion controller sets it yet. Do not delete network parents with live provider resources.
+5. Prove SecurityGroup enforcement, multi-tenant Ethernet/InfiniBand/NVLink isolation, and the full create/reuse/delete path on GB300 hardware. The pilot still accepts an explicit unenforced-SG override.

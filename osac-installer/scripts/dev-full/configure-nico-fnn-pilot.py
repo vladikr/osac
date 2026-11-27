@@ -14,7 +14,6 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 
 NAMESPACE = "osac"
-SUBNET_ID = "01a21a44-015e-7849-9e5a-634c000d0d48"
 DISK_IMAGE_ID = "centos-stream-10"
 OPERATING_SYSTEM_ID = "3403dd3c-83c3-474a-b62b-1aeaddf81ac4"
 CREDENTIAL_TYPE_NAME = "nico-bmaas-fnn-pilot-type"
@@ -128,7 +127,6 @@ def main():
             "NICO_BMAAS_PROVIDER_ORG": "ncx",
             "NICO_BMAAS_TENANT_ID": "284a8abb-f12f-45b8-b124-4207c35cefb8",
             "NICO_BMAAS_OSAC_TENANT_ID": "tenant1",
-            "NICO_BMAAS_OSAC_SUBNET_ID": SUBNET_ID,
             "NICO_BMAAS_NETWORK_VIRTUALIZATION_TYPE": "FNN",
             "NICO_BMAAS_FNN_AUTO_CREATE": "true",
             "NICO_BMAAS_SITE_ID": "d88d241d-a727-49c9-9fbb-521595a4eaa5",
@@ -178,18 +176,27 @@ def main():
             "version: 2\n"
             "bindings:\n"
             "  - osacTenantID: tenant1\n"
-            f"    osacSubnetID: {SUBNET_ID}\n"
+            "    osacBareMetalInstanceTypeID: nico-gb300-nvl72\n"
+            "    placementTargetID: nico-gb300-fnn-nvl72\n"
+            "    providerConfigRef: nico-gb300-pool-nvl72\n"
+            "    networkConfigRef: nico-fnn-nvl72-site\n"
+            "    siteID: d88d241d-a727-49c9-9fbb-521595a4eaa5\n"
             f"    credentialIDs: [{kube_credential['id']}, {credential['id']}]\n"
             "operatingSystems:\n"
             f"  - diskImageID: {DISK_IMAGE_ID}\n"
             f"    nicoOperatingSystemID: {OPERATING_SYSTEM_ID}\n"
         )
-        ensure_k8s_object(
-            {"apiVersion": "v1", "kind": "ConfigMap",
-             "metadata": {"name": "osac-nico-tenant-bindings", "namespace": NAMESPACE},
-             "data": {"bindings.yaml": binding}},
-            lambda obj: obj["data"],
-        )
+        binding_map = {"apiVersion": "v1", "kind": "ConfigMap",
+                       "metadata": {"name": "osac-nico-tenant-bindings", "namespace": NAMESPACE},
+                       "data": {"bindings.yaml": binding}}
+        existing_binding = k8s_object("configmap", "osac-nico-tenant-bindings")
+        if existing_binding is None or existing_binding.get("data") != binding_map["data"]:
+            # This replaces the pilot's earlier Subnet-specific row with one
+            # type/target binding. It carries no credential values.
+            kubectl("apply", "-f", "-", input_text=json.dumps(binding_map))
+            print("ConfigMap/osac-nico-tenant-bindings: applied target binding")
+        else:
+            print("ConfigMap/osac-nico-tenant-bindings: already matches")
         for name, filename, content in (
             ("osac-inventory-config-nico-pilot", "inventory.yaml",
              "name: nico-inventory\ntype: nico\nhostClass: nico\noptions: {}\n"),
@@ -208,7 +215,7 @@ def main():
             "kubernetesCredentialId": kube_credential["id"],
             "nicoCredentialTypeId": credential_type["id"],
             "nicoCredentialId": credential["id"],
-            "osacSubnetId": SUBNET_ID,
+            "placementTargetId": "nico-gb300-fnn-nvl72",
             "diskImageId": DISK_IMAGE_ID,
             "nicoOperatingSystemId": OPERATING_SYSTEM_ID,
         }, indent=2))
@@ -220,10 +227,14 @@ def main():
             port_forward.kill()
             port_forward.wait()
 
+    # The target remains unselectable until the provider IP Block is observed
+    # and its nonsecret fingerprint is stored by the private Fulfillment API.
+    subprocess.run(["bash", str(Path(__file__).with_name("validate-nico-placement-target.sh"))], check=True)
+
 
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, OSError, ValueError, KeyError) as error:
+    except (RuntimeError, OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         sys.exit(1)

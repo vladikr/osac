@@ -469,6 +469,13 @@ spec:
                   NicoMachineID is the physical NICo Machine selected for this Instance.
                   It remains until delete confirms the Machine is unassigned Ready.
                 type: string
+              nicoVpcID:
+                description: |-
+                  NicoVpcID and NicoVpcPrefixID are the provider identities confirmed by
+                  the create job for the shared network realizations.
+                type: string
+              nicoVpcPrefixID:
+                type: string
               phase:
                 description: Phase provides a single-value overview of the state of
                   the BareMetalInstance

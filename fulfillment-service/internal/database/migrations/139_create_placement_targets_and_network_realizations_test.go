@@ -36,9 +36,9 @@ var _ = DescribeMigration("Create placement targets and network realizations", f
 		_, err := conn.Exec(ctx, `
 			insert into bare_metal_placement_targets (id, name, tenant, data)
 			values
-			  ('target-a', 'site-a', 'tenant-a', '{"spec":{"osacInstanceTypeId":"gb300"}}'),
-			  ('target-b', 'site-b', 'tenant-a', '{"spec":{"osacInstanceTypeId":"gb300"}}'),
-			  ('target-c', 'site-a', 'tenant-b', '{"spec":{"osacInstanceTypeId":"gb300"}}')`)
+			  ('target-a', 'site-a', 'tenant-a', '{"spec":{"osac_instance_type_id":"gb300"}}'),
+			  ('target-b', 'site-b', 'tenant-a', '{"spec":{"osac_instance_type_id":"gb300"}}'),
+			  ('target-c', 'site-a', 'tenant-b', '{"spec":{"osac_instance_type_id":"gb300"}}')`)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = conn.Exec(ctx, `
 			insert into bare_metal_placement_targets (id, name, tenant, data)
@@ -49,8 +49,8 @@ var _ = DescribeMigration("Create placement targets and network realizations", f
 	})
 
 	It("deduplicates VPC and Prefix intents without mixing OSAC tenants", func(ctx context.Context) {
-		vpc := `{"spec":{"osacVirtualNetworkId":"vn-1","siteId":"site-a","networkConfigRef":"fnn-a","providerName":"osac-tenant-a-vn-1"}}`
-		otherTenantVPC := `{"spec":{"osacVirtualNetworkId":"vn-1","siteId":"site-a","networkConfigRef":"fnn-a","providerName":"osac-tenant-b-vn-1"}}`
+		vpc := `{"spec":{"osac_virtual_network_id":"vn-1","site_id":"site-a","network_config_ref":"fnn-a","provider_name":"osac-tenant-a-vn-1"}}`
+		otherTenantVPC := `{"spec":{"osac_virtual_network_id":"vn-1","site_id":"site-a","network_config_ref":"fnn-a","provider_name":"osac-tenant-b-vn-1"}}`
 		_, err := conn.Exec(ctx, `
 			insert into network_realizations (id, name, tenant, data)
 			values ('vpc-a', 'vpc-a', 'tenant-a', $1), ('vpc-b', 'vpc-b', 'tenant-b', $2)`, vpc, otherTenantVPC)
@@ -62,7 +62,7 @@ var _ = DescribeMigration("Create placement targets and network realizations", f
 		Expect(errors.As(err, &pgErr)).To(BeTrue())
 		Expect(pgErr.Code).To(Equal("23505"))
 
-		prefix := `{"spec":{"osacVirtualNetworkId":"vn-1","osacSubnetId":"subnet-1","parentRealizationId":"vpc-a","siteId":"site-a","networkConfigRef":"fnn-a","providerName":"osac-subnet-1"}}`
+		prefix := `{"spec":{"osac_virtual_network_id":"vn-1","osac_subnet_id":"subnet-1","parent_realization_id":"vpc-a","site_id":"site-a","network_config_ref":"fnn-a","provider_name":"osac-subnet-1"}}`
 		_, err = conn.Exec(ctx, `
 			insert into network_realizations (id, name, tenant, data)
 			values ('prefix-a', 'prefix-a', 'tenant-a', $1)`, prefix)

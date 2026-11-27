@@ -197,8 +197,11 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
 			return ctrl.Result{}, fmt.Errorf("NICo BMI requires AAP extra vars for the one-time create authorization")
 		}
 		result, err := trigger.TriggerProvisionWithExtraVars(ctx, bmi, map[string]any{
-			"nico_bmaas_create_allowed":      true,
-			"nico_bmaas_operating_system_id": operatingSystemID,
+			"nico_bmaas_create_allowed":        true,
+			"nico_bmaas_operating_system_id":   operatingSystemID,
+			"nico_bmaas_expected_site_id":      bmi.Annotations["osac.openshift.io/placement-site-id"],
+			"nico_bmaas_vpc_realization_id":    bmi.Annotations["osac.openshift.io/vpc-realization-id"],
+			"nico_bmaas_prefix_realization_id": bmi.Annotations["osac.openshift.io/prefix-realization-id"],
 		})
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("NICo AAP launch outcome requires inspection before retry: %w", err)
@@ -237,7 +240,10 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
 	instanceID, instanceOK := status.ExtraVars["nicoInstanceID"].(string)
 	machineID, machineOK := status.ExtraVars["nicoMachineID"].(string)
 	ipAddress, ipOK := status.ExtraVars["nicoIPAddress"].(string)
-	if !instanceOK || instanceID == "" || !machineOK || machineID == "" || !ipOK || ipAddress == "" {
+	vpcID, vpcOK := status.ExtraVars["nicoVpcID"].(string)
+	prefixID, prefixOK := status.ExtraVars["nicoVpcPrefixID"].(string)
+	if !instanceOK || instanceID == "" || !machineOK || machineID == "" || !ipOK || ipAddress == "" ||
+		!vpcOK || vpcID == "" || !prefixOK || prefixID == "" {
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
 		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
 			v1alpha1.HostConditionReasonTemplateFailed,
@@ -245,7 +251,9 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
 		return ctrl.Result{}, nil
 	}
 	if bmi.Status.NicoInstanceID != "" && bmi.Status.NicoInstanceID != instanceID ||
-		bmi.Status.NicoMachineID != "" && bmi.Status.NicoMachineID != machineID {
+		bmi.Status.NicoMachineID != "" && bmi.Status.NicoMachineID != machineID ||
+		bmi.Status.NicoVpcID != "" && bmi.Status.NicoVpcID != vpcID ||
+		bmi.Status.NicoVpcPrefixID != "" && bmi.Status.NicoVpcPrefixID != prefixID {
 		return ctrl.Result{}, fmt.Errorf("NICo AAP artifacts differ from saved provider IDs")
 	}
 	if bmi.Spec.ExternalHostID != machineID || bmi.Spec.HostClass != "nico" {
@@ -259,6 +267,7 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaSProvisioning(
 	// edits. Assign the provider IDs afterward so the reconcile status flush
 	// cannot lose them.
 	bmi.Status.NicoInstanceID, bmi.Status.NicoMachineID = instanceID, machineID
+	bmi.Status.NicoVpcID, bmi.Status.NicoVpcPrefixID = vpcID, prefixID
 	bmi.Status.NetworkAttachmentStatuses = []v1alpha1.BareMetalNetworkAttachmentStatus{{
 		Interface: bmi.Spec.NetworkAttachments[0].Interface,
 		SubnetRef: bmi.Spec.NetworkAttachments[0].SubnetRef,

@@ -299,6 +299,10 @@ type BareMetalInstanceStatus struct {
 	// It remains until delete confirms the Machine is unassigned Ready.
 	// +kubebuilder:validation:Optional
 	NicoMachineID string `json:"nicoMachineID,omitempty"`
+	// NicoVpcID and NicoVpcPrefixID are the provider identities confirmed by
+	// the create job for the shared network realizations.
+	NicoVpcID       string `json:"nicoVpcID,omitempty"`
+	NicoVpcPrefixID string `json:"nicoVpcPrefixID,omitempty"`
 	// NicoCreateOutcome is the outcome reported by a failed NICo create job.
 	// NotCreated means the job failed before the create request, so delete has
 	// nothing to release in NICo. Uncertain requires Site verification. Created

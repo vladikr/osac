@@ -205,6 +205,14 @@ message BareMetalInstanceStatus {
     },
     (osac.private.v1.metering) = {kind: METERING_FIELD_KIND_FIXED_ONCE_SET}
   ];
+
+  // Provider-private capacity decision made during Create, before any NICo write.
+  // The target and its validated configuration are pinned for this BMI's lifetime.
+  string placement_target_id = 10 [(cleanapi.field).private = true];
+  string placement_target_fingerprint = 11 [(cleanapi.field).private = true];
+  string placement_site_id = 12 [(cleanapi.field).private = true];
+  string placement_network_config_ref = 13 [(cleanapi.field).private = true];
+  string placement_provider_config_ref = 14 [(cleanapi.field).private = true];
 }
 
 // Runtime networking state for a single bare metal network attachment.

@@ -92,6 +92,9 @@ type function struct {
 	bareMetalInstancesClient         privatev1.BareMetalInstancesClient
 	bareMetalInstanceTypesClient     privatev1.BareMetalInstanceTypesClient
 	bareMetalInstanceTemplatesClient privatev1.BareMetalInstanceTemplatesClient
+	placementTargetsClient           privatev1.BareMetalPlacementTargetsClient
+	networkRealizationsClient        privatev1.NetworkRealizationsClient
+	subnetsClient                    privatev1.SubnetsClient
 	hubsClient                       privatev1.HubsClient
 	secretsClient                    privatev1.SecretsClient
 	diskImagesClient                 privatev1.DiskImagesClient
@@ -99,12 +102,14 @@ type function struct {
 }
 
 type task struct {
-	r                  *function
-	bareMetalInstance  *privatev1.BareMetalInstance
-	hubId              string
-	hubNamespace       string
-	hubClient          clnt.Client
-	userDataSecretName string
+	r                       *function
+	bareMetalInstance       *privatev1.BareMetalInstance
+	hubId                   string
+	hubNamespace            string
+	hubClient               clnt.Client
+	userDataSecretName      string
+	nicoVpcRealizationID    string
+	nicoPrefixRealizationID string
 }
 
 // NewFunction creates a new builder that can then be used to create a new bare metal instance reconciler function.
@@ -151,6 +156,9 @@ func (b *FunctionBuilder) Build() (result controllers.ReconcilerFunction[*privat
 		bareMetalInstancesClient:         privatev1.NewBareMetalInstancesClient(b.connection),
 		bareMetalInstanceTypesClient:     privatev1.NewBareMetalInstanceTypesClient(b.connection),
 		bareMetalInstanceTemplatesClient: privatev1.NewBareMetalInstanceTemplatesClient(b.connection),
+		placementTargetsClient:           privatev1.NewBareMetalPlacementTargetsClient(b.connection),
+		networkRealizationsClient:        privatev1.NewNetworkRealizationsClient(b.connection),
+		subnetsClient:                    privatev1.NewSubnetsClient(b.connection),
 		hubsClient:                       privatev1.NewHubsClient(b.connection),
 		secretsClient:                    privatev1.NewSecretsClient(b.connection),
 		diskImagesClient:                 privatev1.NewDiskImagesClient(b.connection),
@@ -230,13 +238,23 @@ func (t *task) update(ctx context.Context) error {
 	if t.bareMetalInstance.GetSpec().GetUserDataSource() != nil {
 		t.userDataSecretName = fmt.Sprintf("%s%s", t.bareMetalInstance.GetId(), userDataSecretSuffix)
 	}
-
 	if object == nil {
+		if t.bareMetalInstance.GetStatus().GetPlacementTargetId() != "" {
+			if err := t.validatePinnedNicoTarget(ctx); err != nil {
+				return err
+			}
+		}
 		object = &bmfov1alpha1.BareMetalInstance{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: t.hubNamespace,
 				Name:      fmt.Sprintf("%s%s", objectPrefix, t.bareMetalInstance.GetId()),
 			},
+		}
+	}
+	if t.bareMetalInstance.GetStatus().GetPlacementTargetId() != "" {
+		// Persist both intents before creating or refreshing the Kubernetes CR.
+		if err := t.ensureNicoNetworkRealizations(ctx); err != nil {
+			return err
 		}
 	}
 	storedNetworkAttachments := slices.Clone(object.Spec.NetworkAttachments)
@@ -265,6 +283,11 @@ func (t *task) update(ctx context.Context) error {
 	)
 
 	t.syncStatus(object)
+	if t.bareMetalInstance.GetStatus().GetPlacementTargetId() != "" && object.Status.Phase == bmfov1alpha1.BareMetalInstancePhaseReady {
+		if err := t.recordReadyNicoNetworkRealizations(ctx, object); err != nil {
+			return err
+		}
+	}
 
 	if err := t.ensureUserDataSecret(ctx, object); err != nil {
 		return err
@@ -824,6 +847,15 @@ func (t *task) mutateBMI(ctx context.Context, object *bmfov1alpha1.BareMetalInst
 		object.Annotations = make(map[string]string)
 	}
 	object.Annotations[annotations.Tenant] = t.bareMetalInstance.GetMetadata().GetTenant()
+	if targetID := t.bareMetalInstance.GetStatus().GetPlacementTargetId(); targetID != "" {
+		object.Annotations["osac.openshift.io/placement-target-id"] = targetID
+		object.Annotations["osac.openshift.io/placement-target-fingerprint"] = t.bareMetalInstance.GetStatus().GetPlacementTargetFingerprint()
+		object.Annotations["osac.openshift.io/placement-site-id"] = t.bareMetalInstance.GetStatus().GetPlacementSiteId()
+		object.Annotations["osac.openshift.io/placement-network-config-ref"] = t.bareMetalInstance.GetStatus().GetPlacementNetworkConfigRef()
+		object.Annotations["osac.openshift.io/placement-provider-config-ref"] = t.bareMetalInstance.GetStatus().GetPlacementProviderConfigRef()
+		object.Annotations["osac.openshift.io/vpc-realization-id"] = t.nicoVpcRealizationID
+		object.Annotations["osac.openshift.io/prefix-realization-id"] = t.nicoPrefixRealizationID
+	}
 
 	// The API materializes the Template; the catalog reference is provenance only.
 	templateID := t.bareMetalInstance.GetSpec().GetTemplate().GetId()

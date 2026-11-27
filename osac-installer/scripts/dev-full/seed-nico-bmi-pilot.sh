@@ -104,6 +104,20 @@ cat > "${temporary_dir}/template.json" <<'JSON'
 }
 JSON
 
+cat > "${temporary_dir}/placement-target.json" <<'JSON'
+{
+  "id": "nico-gb300-fnn-nvl72",
+  "metadata": {"name": "nico-gb300-fnn-nvl72", "tenant": "tenant1"},
+  "spec": {
+    "osac_tenant_id": "tenant1",
+    "osac_instance_type_id": "nico-gb300-nvl72",
+    "site_id": "d88d241d-a727-49c9-9fbb-521595a4eaa5",
+    "provider_config_ref": "nico-gb300-pool-nvl72",
+    "network_config_ref": "nico-fnn-nvl72-site"
+  }
+}
+JSON
+
 cat > "${temporary_dir}/catalog.json" <<'JSON'
 {
   "metadata": {"name": "nico-gb300-fnn-pilot", "tenant": "tenant1"},
@@ -136,7 +150,7 @@ ensure_resource() {
     --write-out '%{http_code}' "${api}/${resource}/${id}")"
   case "${code}" in
     200)
-      if [[ "${kind}" == type ]]; then
+      if [[ "${kind}" == type || "${kind}" == target ]]; then
         jq -e --slurpfile expected "${payload}" \
           '.id == $expected[0].metadata.name and .metadata.name == $expected[0].metadata.name and .spec == $expected[0].spec' \
           "${temporary_dir}/response.json" >/dev/null || fail "existing ${resource}/${id} differs from pilot specification"
@@ -171,6 +185,7 @@ ensure_resource() {
 }
 
 ensure_resource bare_metal_instance_types nico-gb300-nvl72 "${temporary_dir}/type.json" type
+ensure_resource bare_metal_placement_targets nico-gb300-fnn-nvl72 "${temporary_dir}/placement-target.json" target
 ensure_resource baremetal_instance_templates osac.templates.nico_bm_host_provisioning "${temporary_dir}/template.json" template
 ensure_resource disk_images centos-stream-10 "${temporary_dir}/image.json" image
 

@@ -39,6 +39,10 @@ type nicoTenantBinding struct {
 	OSACTenantID                string `json:"osacTenantID"`
 	OSACBareMetalInstanceTypeID string `json:"osacBareMetalInstanceTypeID,omitempty"`
 	OSACSubnetID                string `json:"osacSubnetID,omitempty"`
+	PlacementTargetID           string `json:"placementTargetID,omitempty"`
+	ProviderConfigRef           string `json:"providerConfigRef,omitempty"`
+	NetworkConfigRef            string `json:"networkConfigRef,omitempty"`
+	SiteID                      string `json:"siteID,omitempty"`
 	CredentialIDs               []int  `json:"credentialIDs"`
 }
 
@@ -167,6 +171,16 @@ func (r *BareMetalInstanceReconciler) withNicoCredentials(ctx context.Context, b
 	}
 	if selected == nil {
 		return nil, nil, errNicoSubnetUnbound
+	}
+	if targetID := bmi.Annotations["osac.openshift.io/placement-target-id"]; targetID != "" {
+		if selected.PlacementTargetID != targetID ||
+			selected.ProviderConfigRef != bmi.Annotations["osac.openshift.io/placement-provider-config-ref"] ||
+			selected.NetworkConfigRef != bmi.Annotations["osac.openshift.io/placement-network-config-ref"] ||
+			selected.SiteID != bmi.Annotations["osac.openshift.io/placement-site-id"] ||
+			bmi.Annotations["osac.openshift.io/vpc-realization-id"] == "" ||
+			bmi.Annotations["osac.openshift.io/prefix-realization-id"] == "" {
+			return nil, nil, fmt.Errorf("NICo credential binding does not match the pinned placement and network intent")
+		}
 	}
 	return provisioning.WithAAPCredentialIDs(ctx, selected.CredentialIDs), config, nil
 }
