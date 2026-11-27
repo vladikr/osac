@@ -334,6 +334,8 @@ func buildHandlerList() []handlerRegistrar {
 		privatev1.RegisterFabricDomainsHandler,
 		privatev1.RegisterSecretsHandler,
 		privatev1.RegisterStorageBackendsHandler,
+		privatev1.RegisterBareMetalPlacementTargetsHandler,
+		privatev1.RegisterNetworkRealizationsHandler,
 		privatev1.RegisterStorageTiersHandler,
 		privatev1.RegisterVirtualNetworksHandler,
 		privatev1.RegisterSubnetsHandler,

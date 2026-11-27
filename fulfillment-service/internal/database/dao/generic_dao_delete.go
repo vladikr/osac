@@ -231,6 +231,8 @@ func (r *DeleteRequest[O]) translateError(ctx context.Context, tenant string, er
 					tenant,
 				),
 			}
+		case "network_realizations_parent_fk":
+			return &ErrInUse{Reason: "network realization still has a subnet realization"}
 		default:
 			return err
 		}

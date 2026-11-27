@@ -663,6 +663,8 @@ var _ = Describe("Rego authorization interceptor", func() {
 			// Other private services must be denied:
 			Entry("Hubs Create", "/osac.private.v1.Hubs/Create"),
 			Entry("StorageBackends Create", "/osac.private.v1.StorageBackends/Create"),
+			Entry("BareMetalPlacementTargets Create", "/osac.private.v1.BareMetalPlacementTargets/Create"),
+			Entry("NetworkRealizations Create", "/osac.private.v1.NetworkRealizations/Create"),
 			// The CSI identity is not a general client: the public API is denied
 			// even for methods a normal client could call.
 			Entry("Public Clusters Create", "/osac.public.v1.Clusters/Create"),

@@ -1,0 +1,76 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.private.v1;
+
+import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
+import "google/api/field_behavior.proto";
+import "osac/private/v1/metadata_type.proto";
+
+option (cleanapi.file).private = true;
+
+// Durable provider-private intent and observed state for one OSAC network object at one site.
+// A VirtualNetwork realization is shared by its Subnet realizations and outlives individual BMIs.
+message NetworkRealization {
+  string id = 1;
+  Metadata metadata = 2;
+  NetworkRealizationSpec spec = 3 [(buf.validate.field).required = true];
+  NetworkRealizationStatus status = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message NetworkRealizationSpec {
+  string osac_tenant_id = 1 [(buf.validate.field).string.min_len = 1];
+  string osac_virtual_network_id = 2 [(buf.validate.field).string.min_len = 1];
+  // Set only for a Subnet realization.
+  string osac_subnet_id = 3;
+  // Required for a Subnet realization; points to the VirtualNetwork realization.
+  string parent_realization_id = 4;
+  string site_id = 5 [(buf.validate.field).string.min_len = 1];
+  string network_config_ref = 6 [(buf.validate.field).string.min_len = 1];
+  // Exact requested Subnet CIDR. Empty for a VirtualNetwork realization.
+  string requested_cidr = 7;
+  NetworkRealizationOwnership ownership = 8;
+  // Stable identity chosen before any provider write. Used to recover ambiguous create results.
+  string provider_name = 9 [(buf.validate.field).string.min_len = 1];
+  // Existing provider ID to validate when explicitly adopting a provider-owned resource.
+  // Empty for OSAC-created resources.
+  string adopted_backend_resource_id = 10;
+}
+
+enum NetworkRealizationOwnership {
+  NETWORK_REALIZATION_OWNERSHIP_UNSPECIFIED = 0;
+  NETWORK_REALIZATION_OWNERSHIP_OSAC_CREATED = 1;
+  NETWORK_REALIZATION_OWNERSHIP_ADOPTED = 2;
+}
+
+message NetworkRealizationStatus {
+  NetworkRealizationState state = 1;
+  string message = 2;
+  // Filled after provider create or adoption validation. Never guessed from a failed POST.
+  string backend_resource_id = 3;
+  string observed_cidr = 4;
+}
+
+enum NetworkRealizationState {
+  NETWORK_REALIZATION_STATE_UNSPECIFIED = 0;
+  NETWORK_REALIZATION_STATE_PENDING = 1;
+  NETWORK_REALIZATION_STATE_READY = 2;
+  // Provider create may have succeeded but identity cannot yet be safely established.
+  NETWORK_REALIZATION_STATE_UNKNOWN = 3;
+  NETWORK_REALIZATION_STATE_FAILED = 4;
+  // Remote deletion is confirmed, or the adopted record has been released by its owner.
+  NETWORK_REALIZATION_STATE_DELETED = 5;
+}

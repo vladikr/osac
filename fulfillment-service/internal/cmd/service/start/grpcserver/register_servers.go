@@ -605,6 +605,22 @@ func RegisterResourceServers(ctx context.Context, registrar grpc.ServiceRegistra
 	}
 	privatev1.RegisterStorageBackendsServer(registrar, privateStorageBackendsServer)
 
+	// Provider-owned capacity and network state is private to Fulfillment. These
+	// records are not projected as tenant-facing Kubernetes resources.
+	placementTargetsServer, err := servers.NewPrivateBareMetalPlacementTargetsServer(
+		deps.Logger, deps.PrivateAttributionLogic, deps.TenancyLogic, deps.MetricsRegisterer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bare-metal placement targets server: %w", err)
+	}
+	privatev1.RegisterBareMetalPlacementTargetsServer(registrar, placementTargetsServer)
+
+	networkRealizationsServer, err := servers.NewPrivateNetworkRealizationsServer(
+		deps.Logger, deps.PrivateAttributionLogic, deps.TenancyLogic, deps.MetricsRegisterer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create network realizations server: %w", err)
+	}
+	privatev1.RegisterNetworkRealizationsServer(registrar, networkRealizationsServer)
+
 	// Create the private secrets server:
 	deps.Logger.InfoContext(ctx, "Creating private secrets server")
 	privateSecretsServer, err := servers.NewPrivateSecretsServer().

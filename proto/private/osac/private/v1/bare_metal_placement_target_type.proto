@@ -1,0 +1,58 @@
+//
+// Copyright (c) 2026 Red Hat, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+// the License. You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+// an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+
+syntax = "proto3";
+
+package osac.private.v1;
+
+import "buf/validate/validate.proto";
+import "cleanapi/cleanapi.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "osac/private/v1/metadata_type.proto";
+
+option (cleanapi.file).private = true;
+
+// Registers one provider-owned source of bare-metal capacity for an OSAC tenant and instance type.
+// Placement selects this target before any external writes and records its identity on the BMI.
+// It does not identify a physical host or replace BareMetalPool.
+message BareMetalPlacementTarget {
+  string id = 1;
+  Metadata metadata = 2;
+  BareMetalPlacementTargetSpec spec = 3 [(buf.validate.field).required = true];
+  BareMetalPlacementTargetStatus status = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message BareMetalPlacementTargetSpec {
+  // OSAC tenant that may use this target. Must equal metadata.tenant.
+  string osac_tenant_id = 1 [(buf.validate.field).string.min_len = 1];
+  // OSAC hardware type exposed by catalog policy.
+  string osac_instance_type_id = 2 [(buf.validate.field).string.min_len = 1];
+  // Provider site, known before NICo network realization. May be empty for legacy inventory targets.
+  string site_id = 3;
+  // Stable provider-private capacity configuration reference; never a credential or secret value.
+  string provider_config_ref = 4 [(buf.validate.field).string.min_len = 1];
+  // Stable provider-private network configuration reference. Empty for ordinary inventory targets.
+  string network_config_ref = 5;
+}
+
+message BareMetalPlacementTargetStatus {
+  // Only the provider validation controller may mark a target ready for selection.
+  bool ready = 1;
+  string message = 2;
+  // Hash of the validated configuration and remote identity, for drift detection and BMI pinning.
+  string validated_fingerprint = 3;
+  // Observed CIDR of the provider IP block, not an administrator's unverified input.
+  string observed_ip_block_cidr = 4;
+  google.protobuf.Timestamp validated_at = 5;
+}

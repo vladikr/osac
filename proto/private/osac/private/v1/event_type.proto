@@ -21,6 +21,7 @@ import "osac/private/v1/add_on_operator_type.proto";
 import "osac/private/v1/baremetal_instance_catalog_item_type.proto";
 import "osac/private/v1/baremetal_instance_template_type.proto";
 import "osac/private/v1/baremetal_instance_type.proto";
+import "osac/private/v1/bare_metal_placement_target_type.proto";
 import "osac/private/v1/cluster_catalog_item_type.proto";
 import "osac/private/v1/cluster_template_type.proto";
 import "osac/private/v1/cluster_version_type.proto";
@@ -38,6 +39,7 @@ import "osac/private/v1/identity_provider_type.proto";
 import "osac/private/v1/instance_type_type.proto";
 import "osac/private/v1/nat_gateway_type.proto";
 import "osac/private/v1/network_class_type.proto";
+import "osac/private/v1/network_realization_type.proto";
 import "osac/private/v1/project_membership_type.proto";
 import "osac/private/v1/project_type.proto";
 import "osac/private/v1/tenant_type.proto";
@@ -105,6 +107,8 @@ message Event {
     Volume volume = 35 [(cleanapi.field).private = true];
     AddOnOperator add_on_operator = 37 [(cleanapi.field).private = true];
     FabricDomain fabric_domain = 38 [(cleanapi.field).private = true];
+    BareMetalPlacementTarget bare_metal_placement_target = 39 [(cleanapi.field).private = true];
+    NetworkRealization network_realization = 40 [(cleanapi.field).private = true];
   }
 
   reserved 10;

@@ -114,6 +114,8 @@ var sharedHandlers = []string{
 	"private/v1.RegisterNetworkClassesHandler",
 	"private/v1.RegisterSecretsHandler",
 	"private/v1.RegisterStorageBackendsHandler",
+	"private/v1.RegisterBareMetalPlacementTargetsHandler",
+	"private/v1.RegisterNetworkRealizationsHandler",
 	"private/v1.RegisterStorageTiersHandler",
 	"private/v1.RegisterVirtualNetworksHandler",
 	"private/v1.RegisterSubnetsHandler",
