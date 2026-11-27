@@ -203,6 +203,12 @@ var _ = Describe("DeriveProvisioningProgress", func() {
 				condFalse(HostConditionProvisionTemplateComplete, HostConditionReasonTemplateFailed),
 			},
 			ProvisioningProgress{State: StateFailed, Step: StepProvisioning, Failure: FailureProvisionJob}),
+		Entry("ProvisionTemplateComplete False+UnsupportedDiskImage -> unsupported DiskImage",
+			[]metav1.Condition{condFalse(HostConditionProvisionTemplateComplete, HostConditionReasonUnsupportedDiskImage)},
+			ProvisioningProgress{State: StateFailed, Step: StepProvisioning, Failure: FailureUnsupportedDiskImage}),
+		Entry("ProvisionTemplateComplete False+UnsupportedSubnet -> unsupported Subnet",
+			[]metav1.Condition{condFalse(HostConditionProvisionTemplateComplete, HostConditionReasonUnsupportedSubnet)},
+			ProvisioningProgress{State: StateFailed, Step: StepProvisioning, Failure: FailureUnsupportedSubnet}),
 		Entry("NetworkAttachmentsReady False+TemplateFailed -> network attachment failure",
 			[]metav1.Condition{
 				condTrue(HostConditionAllocated),

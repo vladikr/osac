@@ -132,9 +132,13 @@ func (r *BareMetalInstanceReconciler) reconcileNicoBMaaS(ctx context.Context, bm
 	}
 	boundCtx, bindings, err := r.withNicoCredentials(ctx, bmi)
 	if err != nil {
+		reason := v1alpha1.HostConditionReasonTemplateFailed
+		if errors.Is(err, errNicoSubnetUnbound) {
+			reason = v1alpha1.HostConditionReasonUnsupportedSubnet
+		}
 		bmi.Status.Phase = v1alpha1.BareMetalInstancePhaseFailed
 		bmi.SetStatusCondition(v1alpha1.HostConditionProvisionTemplateComplete, metav1.ConditionFalse,
-			v1alpha1.HostConditionReasonTemplateFailed, "NICo tenant binding is unavailable")
+			reason, "NICo tenant binding is unavailable")
 		return ctrl.Result{}, err
 	}
 

@@ -96,6 +96,12 @@ const (
 	FailureHostAllocation FailureClassification = "HostAllocationFailed"
 	// FailureProvisionJob means the provision template workflow failed (PROVISIONED axis).
 	FailureProvisionJob FailureClassification = "ProvisionJobFailed"
+	// FailureUnsupportedDiskImage means the requested DiskImage is not approved for the
+	// provider, so no provision job ran (PROVISIONED axis).
+	FailureUnsupportedDiskImage FailureClassification = "UnsupportedDiskImage"
+	// FailureUnsupportedSubnet means the requested Subnet has no approved provider
+	// binding, so no provision job ran (PROVISIONED axis).
+	FailureUnsupportedSubnet FailureClassification = "UnsupportedSubnet"
 	// FailureNetworkAttachment means network attachment failed (PROVISIONED axis).
 	FailureNetworkAttachment FailureClassification = "NetworkAttachmentFailed"
 	// FailureNetworkHandoff means the network handoff reboot failed (PROVISIONED axis).
@@ -251,8 +257,9 @@ func DeriveProvisioningProgress(conds []metav1.Condition) ProvisioningProgress {
 
 // classifyHostConditionFailure maps a surfaced condition (and, for Host Allocation,
 // its operator reason) to the failed step and the corresponding FailureClassification.
-// Only HostConditionAllocated needs the reason, to distinguish "no host matched the
-// selector" from any other allocation failure.
+// HostConditionAllocated needs the reason to distinguish "no host matched the
+// selector" from any other allocation failure, and HostConditionProvisionTemplateComplete
+// to distinguish a request the provider rejected before any job ran.
 func classifyHostConditionFailure(
 	ct BareMetalInstanceConditionType, reason string,
 ) (ProvisioningStep, FailureClassification) {
@@ -263,6 +270,12 @@ func classifyHostConditionFailure(
 		}
 		return StepHostAllocation, FailureHostAllocation
 	case HostConditionProvisionTemplateComplete:
+		switch reason {
+		case HostConditionReasonUnsupportedDiskImage:
+			return StepProvisioning, FailureUnsupportedDiskImage
+		case HostConditionReasonUnsupportedSubnet:
+			return StepProvisioning, FailureUnsupportedSubnet
+		}
 		return StepProvisioning, FailureProvisionJob
 	case HostConditionNetworkAttachmentsReady:
 		return StepNetworkSetupAttachment, FailureNetworkAttachment
