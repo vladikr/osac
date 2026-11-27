@@ -449,6 +449,28 @@ var _ = Describe("mutateBMI", func() {
 			"system sshPublicKey must override user-provided template_parameters value")
 	})
 
+	It("should annotate the bare-metal instance type ID outside templateParameters", func() {
+		t := &task{
+			r: &function{
+				logger:                       logger,
+				bareMetalInstanceTypesClient: defaultFakeBareMetalInstanceTypesClient(),
+			},
+			bareMetalInstance: privatev1.BareMetalInstance_builder{
+				Id: "bmi-test",
+				Spec: privatev1.BareMetalInstanceSpec_builder{
+					CatalogItem:  privatev1.BareMetalInstanceCatalogItemReference_builder{Id: "catalog-1"}.Build(),
+					Template:     privatev1.BareMetalInstanceTemplateReference_builder{Id: "osac.templates.default"}.Build(),
+					InstanceType: privatev1.BareMetalInstanceTypeReference_builder{Id: "default-type", Shared: true}.Build(),
+				}.Build(),
+			}.Build(),
+		}
+
+		var obj bmfov1alpha1.BareMetalInstance
+		Expect(t.mutateBMI(ctx, &obj)).To(Succeed())
+		Expect(obj.Annotations).To(HaveKeyWithValue(annotations.BareMetalInstanceType, "default-type"))
+		Expect(obj.Spec.TemplateParameters).NotTo(ContainSubstring("default-type"))
+	})
+
 	It("should reject an instance without a materialized Template", func() {
 
 		t := &task{
