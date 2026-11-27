@@ -1,6 +1,6 @@
-# From a tenant request to an SSH session on a GB300
+# One tenant network, from OSAC to a GB300
 
-Open with the tenant's question: **“I have an OSAC subnet. How do I get a GB300 on it?”** End with the guest answering over SSH. Between those two shots, follow the same subnet, instance type, and assigned IP across OSAC and NICo.
+**Opening narration.** “As an OSAC tenant, I can request VMs, Kubernetes clusters, and bare-metal nodes, including a GB300. I want to define my workload network once and choose the subnet when I request a service. I'll start by creating that network in OSAC. Then I'll request a GB300 and log in to the address it gets on my subnet.”
 
 ## Before recording
 
@@ -8,7 +8,7 @@ Use two Bash terminals. **Pilot VM** is `cloud-user@osac-nico-fnn-pilot`, with t
 
 For a **creation** demo, reserve a fresh, nonoverlapping /28 inside the validated `10.181.0.0/24` with the site operator. Check current OSAC network/subnet allocations and NICo prefixes. The earlier run used `10.181.0.32/28`. Reusing its existing network demonstrates reuse. Confirm a tray is available and the SSH key pair exists on the pilot VM.
 
-**NICo hub.** Enter the reserved CIDR. Capture the baseline. The matching prefix list for a fresh CIDR should be empty.
+**NICo hub · pre-recording check.** Enter the reserved CIDR. Capture the baseline. The matching prefix list for a fresh CIDR should be empty.
 
 ```bash
 read -rp 'Reserved demo CIDR: ' cidr
@@ -18,28 +18,12 @@ nicocli --org ncx vpc-prefix list |
 
 If you want a text transcript as well as video, run `script -q "$HOME/fnn-demo-$(hostname -s)-$(date +%Y%m%d-%H%M%S).log"` in each terminal **before** setting variables. Use `exit` to finish each transcript.
 
-## 1. Admin shows what was onboarded
+## 1. Tenant creates the workload network
 
-**Pilot VM · admin view.** “I registered the tenant's site and network configuration once. This mapping tells OSAC which NICo hardware pool fulfills the GB300 offering. The validator checked the pool, the tenant's compute allocation, and the IP block.”
-
-```bash
-cd "$HOME/src/osac"
-export KUBECONFIG="$HOME/.kube/osac-dev-kind-root.kubeconfig"
-inspect=osac-installer/scripts/dev-full/validate-nico-placement-target.sh
-bash "$inspect" --show
-```
-
-Hold on the actual output: `tenant1`, the mapping from `nico-gb300-nvl72` to `fce88359-c3bc-48b7-8029-b0f4466a2538`, `ready: true`, and `10.181.0.0/24`. Launchpad has one verified mapping. The design allows additional offerings on the same target. The admin already completed this setup on the pilot VM. [Setup steps](nico-fnn-pilot.md#upgrade-the-existing-launchpad-vm)
-
-## 2. Tenant chooses hardware, an image, and a network
-
-**Pilot VM · tenant view.** “I sign in to OSAC, choose a published offering and an image, and ask for the network I want.”
+**Pilot VM · tenant view.** Start recording here. Run the identity check as you deliver the opening narration.
 
 ```bash
 osac whoami
-osac get baremetalinstancecatalogitems nico-gb300-fnn-pilot
-osac describe baremetalinstancetype nico-gb300-nvl72
-osac get diskimages centos-stream-10
 ```
 
 Create the demo network. Enter the same reserved CIDR as in the baseline. Keep the generated name for the rest of the recording.
@@ -52,15 +36,34 @@ osac create subnet --name "$demo-subnet" --virtual-network "$demo-vpc" --ipv4-ci
 osac create securitygroup --name "$demo-sg" --virtual-network "$demo-vpc" \
   --egress protocol=all,ipv4-cidr=0.0.0.0/0
 osac get virtualnetworks "$demo-vpc"
-osac get subnets "$demo-subnet"
+osac get subnets "$demo-subnet" -o json | jq '{id,name:.metadata.name,cidr:.spec.ipv4_cidr,state:.status.state}'
 osac get securitygroups "$demo-sg"
 ```
 
-Wait for all three OSAC objects to report Ready. The tenant supplies a security group because this OSAC network requires one. NICo security-group enforcement is outside this pilot.
+Wait for all three OSAC objects to report Ready. Hold on the subnet ID and CIDR. The audience will see them again in the instance request and the NICo prefix. The tenant supplies a security group because this OSAC network requires one. NICo security-group enforcement is outside this pilot.
+
+## 2. Admin explains why this subnet can serve a GB300
+
+**Pilot VM · admin view.** “That subnet is inside the site’s validated IP block. Before this tenant created it, I registered the site and its FNN configuration. This mapping tells OSAC which NICo hardware pool fulfills the GB300 offering. The validator checked the pool, the tenant's compute allocation, and the IP block.”
+
+```bash
+cd "$HOME/src/osac"
+export KUBECONFIG="$HOME/.kube/osac-dev-kind-root.kubeconfig"
+inspect=osac-installer/scripts/dev-full/validate-nico-placement-target.sh
+bash "$inspect" --show
+```
+
+Hold on the actual output: `tenant1`, the mapping from `nico-gb300-nvl72` to `fce88359-c3bc-48b7-8029-b0f4466a2538`, `ready: true`, and `10.181.0.0/24`. Launchpad has one verified mapping. The design allows additional offerings on the same target. The admin already completed this setup on the pilot VM. [Setup steps](nico-fnn-pilot.md#upgrade-the-existing-launchpad-vm)
 
 ## 3. Tenant requests one bare-metal instance
 
-**Pilot VM · tenant view.** “I attach the subnet to the tray's fabric port, `data-0`. My request uses OSAC identifiers throughout.”
+**Pilot VM · tenant view.** “Back in my tenant account, I choose the GB300 offering and a CentOS image. For the tray's fabric port, `data-0`, I use the subnet I just created.”
+
+```bash
+osac get baremetalinstancecatalogitems nico-gb300-fnn-pilot
+osac describe baremetalinstancetype nico-gb300-nvl72
+osac get diskimages centos-stream-10
+```
 
 ```bash
 catalog=$(osac get baremetalinstancecatalogitems nico-gb300-fnn-pilot -o json | jq -er .id)
@@ -100,7 +103,7 @@ show_placement
 show_job
 ```
 
-Point to the BMI's pinned pool ID from scene 1 and the prefix record's `parent`, which equals the VPC realization's `id`. The prefix's `subnet` and `cidr` come from the tenant request. On a fresh network you may catch both intents Pending while AWX runs. The recording can cut here. The previous hardware run took about 18 minutes from NICo instance creation to boot completion.
+Point to the BMI's pinned pool ID from scene 2 and the prefix record's `parent`, which equals the VPC realization's `id`. Match the prefix's `subnet` and `cidr` to the values the tenant recorded in scene 1. On a fresh network you may catch both intents Pending while AWX runs. The recording can cut here. The previous hardware run took about 18 minutes from NICo instance creation to boot completion.
 
 When the job succeeds, repeat **the same two commands**. Capture both Ready realizations with their backend IDs, the successful AWX job, and the assigned NICo instance and machine IDs. Copy the Kubernetes BMI `uid` from `show_job` for the next scene.
 
