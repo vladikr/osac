@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -229,6 +230,73 @@ var _ = Describe("NICo BareMetalInstance lifecycle", func() {
 		Expect(condition.Reason).To(Equal(v1alpha1.HostConditionReasonUnsupportedSubnet))
 		Expect(provider.launches).To(BeZero())
 	})
+
+	Context("with a BareMetalInstanceType binding", func() {
+		recreate := func(subnetID string) {
+			Expect(k8sClient.Delete(ctx, bmi)).To(Succeed())
+			bmi = &v1alpha1.BareMetalInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "nico-bmi-type-", Namespace: "default",
+					Annotations: map[string]string{
+						"osac.openshift.io/tenant":          "pilot-tenant",
+						"osac.openshift.io/owner-reference": "BareMetalInstance/nico-bmi-type",
+						diskImageIDAnnotation:               "centos-disk-image",
+						bareMetalInstanceTypeIDAnnotation:   "nico-gb300",
+					},
+				},
+				Spec: v1alpha1.BareMetalInstanceSpec{
+					TemplateID:         nicoBMaaSTemplateID,
+					Selector:           v1alpha1.HostSelectorSpec{HostSelector: map[string]string{"managedBy": "nico"}},
+					NetworkAttachments: []v1alpha1.BareMetalNetworkAttachment{{SubnetRef: subnetID, Interface: "eno1", Primary: true}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, bmi)).To(Succeed())
+			req = ctrl.Request{NamespacedName: client.ObjectKeyFromObject(bmi)}
+		}
+
+		BeforeEach(func() {
+			config := strings.Replace(nicoTestBindings, "operatingSystems:",
+				"  - osacTenantID: pilot-tenant\n    osacBareMetalInstanceTypeID: nico-gb300\n    credentialIDs: [43]\noperatingSystems:", 1)
+			Expect(os.WriteFile(reconciler.NicoBindingsConfigPath, []byte(config), 0600)).To(Succeed())
+		})
+
+		It("serves any Subnet of the tenant without a per-Subnet binding", func() {
+			recreate("new-tenant-subnet")
+			provider.expectedCredentialIDs = []int{43}
+			reconcile()
+			fresh := reconcile()
+			Expect(fresh.Status.NicoCreateAttempted).To(BeTrue())
+			Expect(provider.launches).To(Equal(1))
+		})
+
+		It("refuses a BMI that matches both a type and a Subnet binding", func() {
+			recreate("osac-pilot-subnet")
+			reconcile() // finalizer
+			_, err := reconciler.Reconcile(ctx, req)
+			Expect(err).To(MatchError(ContainSubstring("more than one NICo tenant binding")))
+			Expect(provider.launches).To(BeZero())
+		})
+	})
+
+	DescribeTable("rejects an invalid tenant binding",
+		func(binding string, message string) {
+			config := "version: 2\nbindings:\n" + binding + "operatingSystems:\n  - diskImageID: centos-disk-image\n    nicoOperatingSystemID: nico-centos-os\n"
+			Expect(os.WriteFile(reconciler.NicoBindingsConfigPath, []byte(config), 0600)).To(Succeed())
+			reconcile() // finalizer
+			_, err := reconciler.Reconcile(ctx, req)
+			Expect(err).To(MatchError(ContainSubstring(message)))
+			Expect(provider.launches).To(BeZero())
+		},
+		Entry("both a type and a Subnet",
+			"  - osacTenantID: pilot-tenant\n    osacBareMetalInstanceTypeID: nico-gb300\n    osacSubnetID: osac-pilot-subnet\n    credentialIDs: [41]\n",
+			"sets both a BareMetalInstanceType and a Subnet"),
+		Entry("neither a type nor a Subnet",
+			"  - osacTenantID: pilot-tenant\n    credentialIDs: [41]\n",
+			"needs a BareMetalInstanceType or a Subnet"),
+		Entry("duplicate type binding",
+			"  - osacTenantID: pilot-tenant\n    osacBareMetalInstanceTypeID: nico-gb300\n    credentialIDs: [41]\n  - osacTenantID: pilot-tenant\n    osacBareMetalInstanceTypeID: nico-gb300\n    credentialIDs: [42]\n",
+			"duplicate NICo tenant binding"),
+	)
 
 	It("keeps the cleanup finalizer if the tenant binding disappears before delete", func() {
 		reconcile()

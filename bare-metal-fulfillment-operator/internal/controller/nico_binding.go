@@ -15,8 +15,14 @@ import (
 
 // The binding file is an administrator-owned ConfigMap mount. It contains only
 // OSAC resource IDs, AWX credential IDs, and NICo Operating System IDs; NICo
-// credentials remain in AWX. The selected AWX credential independently checks
-// the tenant and subnet IDs.
+// credentials remain in AWX.
+//
+// A binding selects the AWX credentials for an OSAC tenant and either an OSAC
+// BareMetalInstanceType or an OSAC Subnet. A BareMetalInstanceType binding
+// serves every Subnet of the tenant, which suits credentials that create the
+// NICo network from the Subnet. A Subnet binding pins one Subnet, for
+// credentials that carry a pre-created NICo VPC and Prefix; the selected AWX
+// credential then checks the Subnet ID again.
 //
 // Version 2 adds the site-scoped Operating System catalog, which maps each
 // approved OSAC DiskImage to the NICo Operating System that installs it.
@@ -30,9 +36,10 @@ type nicoBindingsFile struct {
 }
 
 type nicoTenantBinding struct {
-	OSACTenantID  string `json:"osacTenantID"`
-	OSACSubnetID  string `json:"osacSubnetID"`
-	CredentialIDs []int  `json:"credentialIDs"`
+	OSACTenantID                string `json:"osacTenantID"`
+	OSACBareMetalInstanceTypeID string `json:"osacBareMetalInstanceTypeID,omitempty"`
+	OSACSubnetID                string `json:"osacSubnetID,omitempty"`
+	CredentialIDs               []int  `json:"credentialIDs"`
 }
 
 type nicoOperatingSystemEntry struct {
@@ -45,13 +52,17 @@ type nicoOperatingSystemEntry struct {
 // configuration hash.
 const diskImageIDAnnotation = "osac.openshift.io/disk-image-id"
 
+// bareMetalInstanceTypeIDAnnotation carries the BMI BareMetalInstanceType ID,
+// set by the fulfillment service outside the configuration hash.
+const bareMetalInstanceTypeIDAnnotation = "osac.openshift.io/bare-metal-instance-type-id"
+
 // errNicoDiskImageUnsupported marks a BMI whose DiskImage has no approved NICo
 // Operating System. It is terminal for the create attempt: no NICo call is made.
 var errNicoDiskImageUnsupported = errors.New("DiskImage has no approved NICo Operating System")
 
-// errNicoSubnetUnbound marks a BMI whose tenant and Subnet have no binding. No
-// NICo call is made; a later reconcile proceeds once an administrator adds it.
-var errNicoSubnetUnbound = errors.New("no NICo tenant binding for BMI tenant and Subnet")
+// errNicoSubnetUnbound marks a BMI whose tenant has no binding for its
+// BareMetalInstanceType or its Subnet. No NICo call is made.
+var errNicoSubnetUnbound = errors.New("no NICo tenant binding for BMI tenant and BareMetalInstanceType or Subnet")
 
 func isCleanID(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value
@@ -78,12 +89,22 @@ func (r *BareMetalInstanceReconciler) loadNicoBindings() (*nicoBindingsFile, err
 	seen := make(map[string]struct{}, len(config.Bindings))
 	for i := range config.Bindings {
 		binding := &config.Bindings[i]
-		if !isCleanID(binding.OSACTenantID) || !isCleanID(binding.OSACSubnetID) || len(binding.CredentialIDs) == 0 {
+		if !isCleanID(binding.OSACTenantID) || len(binding.CredentialIDs) == 0 {
 			return nil, fmt.Errorf("NICo tenant binding %d is incomplete", i)
 		}
-		key := binding.OSACTenantID + "\x00" + binding.OSACSubnetID
+		var key string
+		switch {
+		case binding.OSACBareMetalInstanceTypeID != "" && binding.OSACSubnetID != "":
+			return nil, fmt.Errorf("NICo tenant binding %d sets both a BareMetalInstanceType and a Subnet", i)
+		case isCleanID(binding.OSACBareMetalInstanceTypeID):
+			key = binding.OSACTenantID + "\x00type\x00" + binding.OSACBareMetalInstanceTypeID
+		case isCleanID(binding.OSACSubnetID):
+			key = binding.OSACTenantID + "\x00subnet\x00" + binding.OSACSubnetID
+		default:
+			return nil, fmt.Errorf("NICo tenant binding %d needs a BareMetalInstanceType or a Subnet", i)
+		}
 		if _, exists := seen[key]; exists {
-			return nil, fmt.Errorf("duplicate NICo tenant binding for one OSAC tenant and Subnet")
+			return nil, fmt.Errorf("duplicate NICo tenant binding for one OSAC tenant")
 		}
 		seen[key] = struct{}{}
 		credentialIDs := make(map[int]struct{}, len(binding.CredentialIDs))
@@ -111,8 +132,9 @@ func (r *BareMetalInstanceReconciler) loadNicoBindings() (*nicoBindingsFile, err
 }
 
 // withNicoCredentials selects the AWX credentials bound to the BMI tenant and
-// Subnet. It also returns the validated bindings file, so a reconcile reads it
-// once.
+// either its BareMetalInstanceType or its Subnet. More than one match is a
+// configuration error. It also returns the validated bindings file, so a
+// reconcile reads it once.
 func (r *BareMetalInstanceReconciler) withNicoCredentials(ctx context.Context, bmi *v1alpha1.BareMetalInstance) (context.Context, *nicoBindingsFile, error) {
 	if len(bmi.Spec.NetworkAttachments) != 1 {
 		return nil, nil, fmt.Errorf("NICo tenant binding requires one OSAC Subnet")
@@ -126,13 +148,27 @@ func (r *BareMetalInstanceReconciler) withNicoCredentials(ctx context.Context, b
 	if err != nil {
 		return nil, nil, err
 	}
+	instanceTypeID := bmi.Annotations[bareMetalInstanceTypeIDAnnotation]
+	var selected *nicoTenantBinding
 	for i := range config.Bindings {
 		binding := &config.Bindings[i]
-		if binding.OSACTenantID == tenantID && binding.OSACSubnetID == subnetID {
-			return provisioning.WithAAPCredentialIDs(ctx, binding.CredentialIDs), config, nil
+		if binding.OSACTenantID != tenantID {
+			continue
 		}
+		typeMatch := binding.OSACBareMetalInstanceTypeID != "" && binding.OSACBareMetalInstanceTypeID == instanceTypeID
+		subnetMatch := binding.OSACSubnetID != "" && binding.OSACSubnetID == subnetID
+		if !typeMatch && !subnetMatch {
+			continue
+		}
+		if selected != nil {
+			return nil, nil, fmt.Errorf("more than one NICo tenant binding matches the BMI")
+		}
+		selected = binding
 	}
-	return nil, nil, errNicoSubnetUnbound
+	if selected == nil {
+		return nil, nil, errNicoSubnetUnbound
+	}
+	return provisioning.WithAAPCredentialIDs(ctx, selected.CredentialIDs), config, nil
 }
 
 // nicoOperatingSystemFor returns the NICo Operating System approved for the
