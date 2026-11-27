@@ -1,5 +1,7 @@
 # NICo FNN network realization pilot
 
+For a narrated walkthrough on the deployed Launchpad VM, follow the [recording script](nico-fnn-recording.md).
+
 This branch extends the existing NICo BareMetalInstance pilot. When enabled for
 an AWX NICo BMI credential, the create job reads the referenced OSAC Subnet and
 parent VirtualNetwork, verifies their tenant and Ready state, checks that the
