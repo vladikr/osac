@@ -85,31 +85,42 @@ osac get baremetalinstances "$bmi"
 
 Record the new BMI ID. This is the command that requests a real tray.
 
-## 4. Admin follows the placement and both network records
+## 4. Follow the two NetworkRealization records
 
 **Pilot VM · admin cutaway.** “At admission, Fulfillment selected the validated target and pinned the NICo pool on this BMI. Before launching provisioning, it recorded two network intents: one for the virtual network's VPC and one for the subnet's exact prefix.”
 
 Once the Kubernetes BMI appears, run:
 
 ```bash
-show_placement() {
-  bash "$inspect" --show "$bmi" | jq -c '
-    if .kind == "BareMetalPlacementTarget" then {kind,id,ready:.status.ready}
-    elif .kind == "BareMetalInstance" then {kind,id,state,target,nico_instance_type_id}
-    else {kind,id,vn:.spec.osac_virtual_network_id,subnet:.spec.osac_subnet_id,
-          parent:.spec.parent_realization_id,cidr:.spec.requested_cidr,
-          state:.status.state,backend:.status.backend_resource_id} end'
+show_realizations() {
+  bash "$inspect" --show "$bmi" | jq '
+    select(.kind == "NetworkRealization") |
+    if .spec.osac_subnet_id then
+      {kind, id, osacSubnet:.spec.osac_subnet_id, cidr:.spec.requested_cidr,
+       parentRealization:.spec.parent_realization_id, state:.status.state,
+       nicoVpcPrefixId:.status.backend_resource_id}
+    else
+      {kind, id, osacVirtualNetwork:.spec.osac_virtual_network_id, site:.spec.site_id,
+       state:.status.state, nicoVpcId:.status.backend_resource_id}
+    end'
 }
 show_job() {
   kubectl -n osac get baremetalinstance "bmi-$bmi" -o json |
-    jq '{uid:.metadata.uid,phase:.status.phase,jobs:[.status.provisioningJobs[]? | {jobID,type,state}],
+    jq '{uid:.metadata.uid,phase:.status.phase,
+         placementTarget:.metadata.annotations["osac.openshift.io/placement-target-id"],
+         nicoPool:.metadata.annotations["osac.openshift.io/placement-nico-instance-type-id"],
+         vpcRealization:.metadata.annotations["osac.openshift.io/vpc-realization-id"],
+         prefixRealization:.metadata.annotations["osac.openshift.io/prefix-realization-id"],
+         jobs:[.status.provisioningJobs[]? | {jobID,type,state}],
          nicoInstanceID:.status.nicoInstanceID,nicoMachineID:.status.nicoMachineID}'
 }
-show_placement
 show_job
+show_realizations
 ```
 
-Point to the BMI's pinned pool ID from scene 2 and the prefix record's `parent`, which equals the VPC realization's `id`. Match the prefix's `subnet` and `cidr` to the values the tenant recorded in scene 1. On a fresh network you may catch both intents Pending while AWX runs. The recording can cut here. The previous hardware run took about 18 minutes from NICo instance creation to boot completion.
+“The placement target tells us where the GB300 can run. Now follow the two realization IDs on the BMI. The first record connects my OSAC VirtualNetwork to a NICo VPC. The second connects my subnet to a prefix inside that VPC.”
+
+Point to the BMI’s `vpcRealization` and `prefixRealization`, then the matching `id` on each record. On the prefix record, `parentRealization` points back to the VPC realization. Match the prefix's `subnet` and `cidr` to the values the tenant recorded in scene 1. On a fresh network you may catch both intents Pending while AWX runs. The recording can cut here. The previous hardware run took about 18 minutes from NICo instance creation to boot completion.
 
 When the job succeeds, repeat **the same two commands**. Capture both Ready realizations with their backend IDs, the successful AWX job, and the assigned NICo instance and machine IDs. Copy the Kubernetes BMI `uid` from `show_job` for the next scene.
 
@@ -134,7 +145,7 @@ nicocli --org ncx vpc-prefix list | jq --arg id "$prefix" \
   '.[] | select(.id == $id) | {id,status,prefix,ipBlockId,vpcId}'
 ```
 
-Show three matches: the instance's `instanceTypeId` equals the pinned pool, the VPC and prefix IDs equal the two realization backend IDs, and the prefix CIDR equals the tenant's subnet. Hold on the physical interface's IP address.
+Compare the instance’s `vpcId` with `nicoVpcId` from the first realization. Compare the physical interface’s `vpcPrefixId` with `nicoVpcPrefixId` from the second. The provider prefix should show the tenant’s requested CIDR, and the instance’s `instanceTypeId` should match the pinned pool. Hold on the physical interface's IP address.
 
 ## 6. Tenant logs in to the host
 
