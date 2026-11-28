@@ -6,15 +6,7 @@
 
 Use two Bash terminals. **Pilot VM** is `cloud-user@osac-nico-fnn-pilot`, with the OSAC CLI logged in as `tenant1_user`. Use that terminal for both the tenant commands and the clearly labeled admin cutaways. **NICo hub** is the existing `control-plane-2` shell with a working `nicocli --org ncx` session. Authenticate before recording. Keep the shells open so their variables survive camera cuts.
 
-For a **creation** demo, reserve a fresh, nonoverlapping /28 inside the validated `10.181.0.0/24` with the site operator. Check current OSAC network/subnet allocations and NICo prefixes. The earlier run used `10.181.0.32/28`. Reusing its existing network demonstrates reuse. Confirm a tray is available and the SSH key pair exists on the pilot VM.
-
-**NICo hub · pre-recording check.** Enter the reserved CIDR. Capture the baseline. The matching prefix list for a fresh CIDR should be empty.
-
-```bash
-read -rp 'Reserved demo CIDR: ' cidr
-nicocli --org ncx vpc-prefix list |
-  jq --arg cidr "$cidr" '[.[] | select(.prefix == $cidr) | {id,vpcId,prefix}]'
-```
+For a **creation** demo, reserve a fresh, nonoverlapping /28 inside the validated `10.181.0.0/24` with the site operator. Check current OSAC network/subnet allocations and NICo prefixes. Confirm a tray is available and the SSH key pair exists on the pilot VM.
 
 If you want a text transcript as well as video, run `script -q "$HOME/fnn-demo-$(hostname -s)-$(date +%Y%m%d-%H%M%S).log"` in each terminal **before** setting variables. Use `exit` to finish each transcript.
 
@@ -26,7 +18,21 @@ If you want a text transcript as well as video, run `script -q "$HOME/fnn-demo-$
 osac whoami
 ```
 
-Create the demo network. Enter the same reserved CIDR as in the baseline. Keep the generated name for the rest of the recording.
+**NICo hub · provider cutaway.** “Where does my subnet range come from? The provider has already allocated this IP block to the NICo tenant used by OSAC tenant1 at this site.”
+
+```bash
+block=1adb7f5b-8b3e-4ff3-be0d-96bd99b2dab5
+nicocli --org ncx ip-block get "$block" |
+  jq '{id,cidr:(.prefix + "/" + (.prefixLength|tostring)),tenantId,siteId,status}'
+nicocli --org ncx vpc-prefix list |
+  jq --arg block "$block" '[.[] | select(.ipBlockId == $block) | {prefix,vpcId}]'
+```
+
+Point to the Ready tenant-owned `10.181.0.0/24` block, its NICo tenant ID `284a8abb-f12f-45b8-b124-4207c35cefb8`, and site `d88d241d-a727-49c9-9fbb-521595a4eaa5`. The provider root block can have the same CIDR and an empty tenant ID. The tenant-owned record establishes which allocation this site configuration can use.
+
+“Our chosen `10.181.0.48/28` spans `10.181.0.48` through `10.181.0.63`, entirely inside that allocation.” Show the existing prefixes in the block so viewers can see which ranges are already claimed. Check for overlap with larger or smaller prefixes as well as an exact match. Later, compare this block CIDR with the placement target’s `status.observed_ip_block_cidr`.
+
+**Pilot VM · tenant view.** Create the demo network. Enter the reserved demo CIDR, `10.181.0.48/28`. Keep the generated name for the rest of the recording.
 
 ```bash
 read -rp 'Reserved demo CIDR: ' cidr
